@@ -1,0 +1,25 @@
+# Secrets and local state - NEVER commit these
+*.hash
+admin_pass.hash
+*.img
+*.img.gz
+*.tar.gz
+
+# Real configs (only .sample files belong in the repo)
+*.ini
+!*.ini.sample
+/etc/ircddbgateway
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Backups
+*.bak
+*.bak-*
+*.orig
+*.mybackup*
+
+# Logs
+*.log
