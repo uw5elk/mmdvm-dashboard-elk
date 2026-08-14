@@ -92,6 +92,30 @@ sudo python3 /opt/dashboard/dashboard.py
 Потім відкрийте `http://<ip-вашого-pi>:85` у браузері.
 **Увійдіть як адміністратор і одразу змініть типовий пароль (`passw0rd`).**
 
+## Скріншоти
+
+![Скріншот 1](docs/screenshots/1.png)
+
+![Скріншот 2](docs/screenshots/2.png)
+
+![Скріншот 3](docs/screenshots/3.png)
+
+![Скріншот 4](docs/screenshots/4.png)
+
+![Скріншот 5](docs/screenshots/5.png)
+
+![Скріншот 6](docs/screenshots/6.png)
+
+![Скріншот 7](docs/screenshots/7.png)
+
+![Скріншот 8](docs/screenshots/8.png)
+
+![Скріншот 9](docs/screenshots/9.png)
+
+![Скріншот 10](docs/screenshots/10.png)
+
+![Скріншот 11](docs/screenshots/11.png)
+
 ## Подяки
 
 - [g4klx](https://github.com/g4klx) — MMDVMHost, DMRGateway, YSF/NXDN клієнти
