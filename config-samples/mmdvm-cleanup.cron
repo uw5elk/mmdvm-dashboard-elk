@@ -1,0 +1,11 @@
+# /etc/cron.d/mmdvm-cleanup
+# Прибирання логів і бекапів хотспота MMDVM
+
+# Щодня о 04:00 - очищення логів Apache
+0 4 * * * root /usr/bin/truncate -s 0 /var/log/apache2/error.log && /usr/bin/truncate -s 0 /var/log/apache2/access.log.1
+# Щонеділі о 04:30 - ротація бекапів MMDVM (залишаємо 5)
+30 4 * * 0 root /bin/ls -t /home/pi/mmdvm-backup-*.tar.gz 2>/dev/null | /usr/bin/tail -n +6 | /usr/bin/xargs /bin/rm -f 2>/dev/null
+# Щонеділі о 04:31 - ротація бекапів дашборду (залишаємо 5)
+31 4 * * 0 root /bin/ls -t /home/pi/dashboard-backup-*.tar.gz 2>/dev/null | /usr/bin/tail -n +6 | /usr/bin/xargs /bin/rm -f 2>/dev/null
+# Щонеділі о 04:36 - видаляємо логи MMDVM старші 7 днів
+36 4 * * 0 root /usr/bin/find /var/log/mmdvm -name "*.log" -mtime +7 -delete

@@ -1,0 +1,54 @@
+#!/bin/bash
+# Безпечне оновлення git-сервісу MMDVM з бекапом і автовідкатом.
+# Використання: update-service <mmdvmhost|dmrgateway|ysfgateway|nxdngateway>
+# Коди виходу: 0=успіх, 1=невірний аргумент, 2=git fail, 3=build fail (відкат), 4=service fail (відкат)
+
+set -o pipefail
+
+case "$1" in
+  mmdvmhost)   GITDIR=/opt/MMDVMHost;    BUILDDIR=/opt/MMDVMHost;               BIN=MMDVM-Host;   UNIT=mmdvmhost ;;
+  dmrgateway)  GITDIR=/opt/DMRGateway;   BUILDDIR=/opt/DMRGateway;              BIN=DMRGateway;   UNIT=dmrgateway ;;
+  ysfgateway)  GITDIR=/opt/YSFClients;   BUILDDIR=/opt/YSFClients/YSFGateway;   BIN=YSFGateway;   UNIT=ysfgateway ;;
+  nxdngateway) GITDIR=/opt/NXDNClients;  BUILDDIR=/opt/NXDNClients/NXDNGateway; BIN=NXDNGateway;  UNIT=nxdngateway ;;
+  *) echo "ПОМИЛКА: невідомий сервіс '$1'"; exit 1 ;;
+esac
+
+BINPATH="$BUILDDIR/$BIN"
+BAKPATH="$BINPATH.bak-$(date +%Y%m%d-%H%M%S)"
+
+echo ">>> Оновлення $1"
+echo ">>> Бекап бінарника: $BAKPATH"
+cp -a "$BINPATH" "$BAKPATH" || { echo "ПОМИЛКА: бекап не вдався"; exit 1; }
+
+OLDREF=$(git -C "$GITDIR" rev-parse HEAD)
+echo ">>> Поточний коміт: $OLDREF"
+
+echo ">>> git pull..."
+if ! git -C "$GITDIR" pull --ff-only 2>&1; then
+    echo "ПОМИЛКА: git pull не вдався"
+    exit 2
+fi
+
+echo ">>> make..."
+if ! make -C "$BUILDDIR" 2>&1; then
+    echo "ПОМИЛКА: збірка не вдалася - відкат git + бінарника"
+    git -C "$GITDIR" reset --hard "$OLDREF"
+    cp -a "$BAKPATH" "$BINPATH"
+    exit 3
+fi
+
+echo ">>> Перезапуск сервісу $UNIT..."
+systemctl restart "$UNIT"
+sleep 3
+
+if [ "$(systemctl is-active "$UNIT")" != "active" ]; then
+    echo "ПОМИЛКА: сервіс не піднявся - повний відкат"
+    git -C "$GITDIR" reset --hard "$OLDREF"
+    cp -a "$BAKPATH" "$BINPATH"
+    systemctl restart "$UNIT"
+    exit 4
+fi
+
+echo ">>> УСПІХ: $1 оновлено й працює"
+echo ">>> Бекап збережено: $BAKPATH"
+exit 0

@@ -1,0 +1,78 @@
+[General]
+Id=YOUR_DMR_ID
+Timeout=10
+RptAddress=127.0.0.1
+RptPort=62032
+LocalAddress=127.0.0.1
+LocalPort=62031
+RuleTrace=0
+Daemon=0
+TrunkingEnabled=0
+Debug=0
+
+[Log]
+DisplayLevel=1
+FileLevel=2
+FilePath=/var/log/mmdvm
+FileRoot=DMRGateway
+
+[Voice]
+Enabled=0
+Language=en_GB
+Directory=./Audio
+
+[Info]
+Callsign=YOUR_CALLSIGN
+Enabled=1
+RXFrequency=YOUR_RX_FREQ
+TXFrequency=YOUR_TX_FREQ
+Power=1
+Latitude=0.0
+Longitude=0.0
+Height=0
+Location=Your Location
+Description=YOUR_CALLSIGN
+URL=
+
+[XLX Network]
+Enabled=0
+Port=62030
+Password=passw0rd
+Debug=0
+
+# Приклад DMR-мережі - вкажіть тут свій майстер HBLink / Brandmeister / TGIF
+[DMR Network 1]
+Enabled=1
+Name=HBLink
+Address=YOUR_MASTER_IP
+Port=YOUR_MASTER_PORT
+Password=YOUR_MASTER_PASSWORD
+Location=1
+PassAllTG=1
+PassAllTG=2
+PassAllPC=1
+PassAllPC=2
+Debug=0
+
+[DMR Network 2]
+Enabled=0
+
+[DMR Network 3]
+Enabled=0
+
+[DMR Network 4]
+Enabled=0
+
+[DMR Network 5]
+Enabled=0
+
+[GPSD]
+Enable=0
+Address=127.0.0.1
+Port=2947
+
+[DAPNET]
+Enable=0
+
+[Remote Control]
+Enable=0

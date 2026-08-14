@@ -1,0 +1,26 @@
+#!/bin/bash
+# Перевірка оновлень git-сервісів MMDVM/DVSwitch. Лише читання, нічого не змінює.
+
+REPOS="/opt/MMDVMHost /opt/DMRGateway /opt/YSFClients /opt/NXDNClients /opt/ircDDBGateway /opt/pYSFReflector /opt/DVReflectors"
+
+echo "=== Перевірка оновлень $(date '+%Y-%m-%d %H:%M') ==="
+echo
+
+for d in $REPOS; do
+    name=$(basename "$d")
+    if [ ! -d "$d/.git" ]; then
+        continue
+    fi
+    git config --global --add safe.directory "$d" 2>/dev/null
+    git -C "$d" fetch --quiet 2>/dev/null
+    branch=$(git -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null)
+    behind=$(git -C "$d" rev-list --count "HEAD..origin/$branch" 2>/dev/null)
+    if [ -z "$behind" ] || [ "$behind" = "0" ]; then
+        printf "  %-16s актуальна\n" "$name"
+    else
+        printf "  %-16s відстає на %s комітів\n" "$name" "$behind"
+    fi
+done
+
+echo
+echo "Для оновлення сервісу: sudo update-service <назва>"

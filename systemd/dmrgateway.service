@@ -1,0 +1,12 @@
+[Unit]
+Description=DMR Gateway
+After=mmdvmhost.service
+
+[Service]
+Type=simple
+ExecStart=/opt/DMRGateway/DMRGateway /opt/DMRGateway/DMRGateway.ini
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
