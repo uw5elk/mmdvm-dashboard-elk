@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MYCALL Live — MMDVM</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.3.5/mqtt.min.js"></script>
+<style>
+:root{
+  --bg:#0a0e14; --surface:#121821; --surface2:#1a2230; --border:#243040;
+  --text:#e6edf3; --muted:#7d8da3; --accent:#00d4ff; --green:#00ff88;
+  --red:#ff3860; --amber:#ffaa00; --purple:#a78bfa;
+  --font-mono:'JetBrains Mono',monospace; --font-main:'Inter',-apple-system,'Segoe UI',sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:var(--font-main);min-height:100vh;padding:20px}
+.wrap{max-width:1100px;margin:0 auto}
+.header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px}
+.title{font-size:24px;font-weight:800}
+.title span{color:var(--accent)}
+.subtitle{font-size:13px;color:var(--muted);font-family:var(--font-mono)}
+.conn{display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:13px}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--red);transition:all .3s}
+.dot.on{background:var(--green);box-shadow:0 0 12px var(--green)}
+.now{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:24px;text-align:center;transition:all .3s}
+.now.active{border-color:var(--green);box-shadow:0 0 30px rgba(0,255,136,.15)}
+.now-label{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:2px;font-family:var(--font-mono);margin-bottom:12px}
+.now-idle{font-size:28px;font-weight:700;color:var(--muted)}
+.now-tx{display:none}
+.now-tx .who{font-size:36px;font-weight:800;color:var(--green)}
+.now-tx .what{font-size:16px;color:var(--text);margin-top:8px;font-family:var(--font-mono)}
+.now-tx .mode-badge{display:inline-block;margin-top:12px;padding:4px 14px;border-radius:20px;font-family:var(--font-mono);font-size:14px;font-weight:700;background:rgba(0,212,255,.12);color:var(--accent);border:1px solid var(--accent)}
+.links{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+.link-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px}
+.link-card .lbl{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-family:var(--font-mono);margin-bottom:6px}
+.link-card .val{font-size:18px;font-weight:700;font-family:var(--font-mono)}
+.link-card .val.linked{color:var(--green)}
+.link-card .val.unlinked{color:var(--muted)}
+.section-title{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:2px;font-family:var(--font-mono);margin-bottom:14px}
+.feed{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.event{display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:14px;animation:slidein .3s ease}
+.event:last-child{border-bottom:none}
+@keyframes slidein{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:none}}
+.event .time{color:var(--muted);font-size:13px;min-width:70px}
+.event .badge{padding:2px 10px;border-radius:6px;font-size:12px;font-weight:700;min-width:62px;text-align:center}
+.badge.NXDN{background:rgba(255,170,0,.15);color:var(--amber)}
+.badge.DMR{background:rgba(0,212,255,.15);color:var(--accent)}
+.badge.YSF{background:rgba(167,139,250,.15);color:var(--purple)}
+.badge.DStar,.badge.D-Star{background:rgba(0,255,136,.15);color:var(--green)}
+.badge.LINK{background:rgba(125,141,163,.15);color:var(--muted)}
+.event .txt{flex:1}
+.event .txt b{color:var(--text)}
+.event .src{font-size:12px;color:var(--muted)}
+.event.start .txt b{color:var(--green)}
+.empty{padding:40px;text-align:center;color:var(--muted);font-family:var(--font-mono);font-size:14px}
+@media(max-width:600px){
+  .links{grid-template-columns:repeat(2,1fr)}
+  .title{font-size:20px}
+  .now-tx .who{font-size:28px}
+  .event{font-size:13px;gap:8px;padding:10px 12px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div>
+      <div class="title">MYCALL <span>LIVE</span></div>
+      <div class="subtitle">MMDVM Hotspot · Real-time MQTT</div>
+    </div>
+    <div class="conn"><div class="dot" id="dot"></div><span id="connstat">З'єднання…</span></div>
+  </div>
+
+  <div class="now" id="now">
+    <div class="now-label">Зараз в ефірі</div>
+    <div class="now-idle" id="idle">— тиша —</div>
+    <div class="now-tx" id="tx">
+      <div class="who" id="tx-who">—</div>
+      <div class="what" id="tx-what">—</div>
+      <div class="mode-badge" id="tx-mode">—</div>
+    </div>
+  </div>
+
+  <div class="links">
+    <div class="link-card">
+      <div class="lbl">DMR</div>
+      <div class="val unlinked" id="dmr-link">—</div>
+    </div>
+    <div class="link-card">
+      <div class="lbl">D-Star</div>
+      <div class="val unlinked" id="dstar-link">—</div>
+    </div>
+    <div class="link-card">
+      <div class="lbl">YSF Gateway</div>
+      <div class="val unlinked" id="ysf-link">—</div>
+    </div>
+    <div class="link-card">
+      <div class="lbl">NXDN Gateway</div>
+      <div class="val unlinked" id="nxdn-link">—</div>
+    </div>
+  </div>
+
+  <div class="section-title">Останні події</div>
+  <div class="feed" id="feed">
+    <div class="empty" id="empty">Очікування подій… Передайте з радіо або дочекайтесь активності мережі.</div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const host = location.hostname;
+const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+const url = `${proto}://${location.host}/mqtt`;
+let txTimer = null;
+
+function setConn(ok){
+  $('dot').className = 'dot' + (ok?' on':'');
+  $('connstat').textContent = ok ? 'Підключено' : 'Відключено';
+}
+
+function now(){ return new Date().toLocaleTimeString('uk-UA',{hour12:false}); }
+
+function pushEvent(mode, html, cls=''){
+  const empty = $('empty'); if(empty) empty.remove();
+  const feed = $('feed');
+  const ev = document.createElement('div');
+  ev.className = 'event ' + cls;
+  const badgeCls = (mode||'LINK').replace('-','');
+  ev.innerHTML = `<span class="time">${now()}</span><span class="badge ${badgeCls}">${mode||'LINK'}</span><span class="txt">${html}</span>`;
+  feed.insertBefore(ev, feed.firstChild);
+  while(feed.children.length > 30) feed.removeChild(feed.lastChild);
+}
+
+function showTx(mode, who, what){
+  $('idle').style.display='none';
+  $('tx').style.display='block';
+  $('now').classList.add('active');
+  $('tx-who').textContent = who;
+  $('tx-what').textContent = what;
+  $('tx-mode').textContent = mode;
+  clearTimeout(txTimer);
+  txTimer = setTimeout(clearTx, 300000);
+}
+function clearTx(){
+  $('tx').style.display='none';
+  $('idle').style.display='block';
+  $('now').classList.remove('active');
+}
+
+function handleMmdvm(o){
+  if(o.MMDVM || o.BER){ return; }
+  for(const mode of ['NXDN','DMR','YSF','D-Star','DStar','P25']){
+    if(o[mode]){
+      const d = o[mode];
+      const isDstar = (mode==='D-Star' || mode==='DStar');
+      const nxdnIds = {}; // напр. {'1234':'MYCALL'} - NXDN ID -> позивний
+      const dmrIds = {}; // напр. {'1234567':'MYCALL'} - DMR ID -> позивний
+      const who = d.src_callsign || (mode==='NXDN' ? (nxdnIds[String(d.src_id)] || d.src_info || d.src_id) : (mode==='DMR' ? (dmrIds[String(d.src_id)] || d.src_info || d.src_id) : (d.src_info || d.src_id))) || '?';
+      // Фільтруємо службові TG
+      if((mode==='NXDN' && String(d.dst_id)==='9999') || (mode==='NXDN' && String(d.src_id)==='9999')) return;
+      let dst = '';
+      if(isDstar){
+        const tgt = d.reflector || d.dst_callsign || '';
+        if(tgt && tgt!=='CQCQCQ') dst = ' → '+tgt.trim();
+      } else if(mode==='YSF'){
+        const tgt = d.reflector || '';
+        if(tgt && tgt.trim()) dst = ' → '+tgt.trim();
+      } else {
+        if(d.dst_id!==undefined) dst = ' → TG '+d.dst_id;
+      }
+      const src = d.source==='rf' ? 'з радіо' : 'з мережі';
+      if(d.action==='start' || d.action==='late_entry'){
+        let cardId = null, cardVal = null;
+        if(mode==='DMR' && d.dst_id!==undefined){ cardId='dmr-link'; cardVal='TG '+d.dst_id; }
+        else if(isDstar){ const r = d.reflector || d.dst_callsign || ''; if(r && r!=='CQCQCQ'){ cardId='dstar-link'; cardVal=r.trim(); } }
+        if(cardId && cardVal){ const c=$(cardId); if(c){ c.textContent=cardVal; c.className='val linked'; } }
+      }
+      if(d.action==='start' || d.action==='late_entry'){
+        lastWho[mode] = {who, dst};
+        showTx(mode, who, dst.replace(' → ','') + ' · ' + src);
+        pushEvent(mode, '<b>'+who+'</b>'+dst+' <span class="src">('+src+')</span>', 'start');
+      } else if(d.action==='end'){
+        clearTx();
+        const dur = d.duration ? d.duration.toFixed(1)+'с' : '';
+        const ber = d.ber !== undefined ? ' BER:'+(d.ber*100).toFixed(1)+'%' : '';
+        const loss = d.loss !== undefined && d.loss!==0 ? ' Loss:'+d.loss+'%' : '';
+        const prev = lastWho[mode] || {who:'?', dst:''};
+        if(dur) pushEvent(mode, '<b>'+prev.who+'</b>'+prev.dst+' <span class="src">'+dur+ber+loss+'</span>', 'end');
+      }
+      return;
+    }
+  }
+}
+
+const lastLink = {};
+const lastWho = {}; // зберігаємо позивний між start і end
+const unlinkTimers = {};
+function handleLink(gw, o){
+  if(!o.link) return;
+  const a = o.link.action;
+  const tg = o.link.talkgroup!==undefined ? o.link.talkgroup : '';
+  const refl = o.link.reflector ? o.link.reflector.trim() : '';
+  const el = $(gw+'-link');
+  const target = tg!=='' ? ('TG '+tg) : (refl || 'linked');
+  if(a==='linking' || a==='linked'){
+    clearTimeout(unlinkTimers[gw]);
+    el.textContent = target;
+    el.className = 'val linked';
+    if(lastLink[gw] !== target){
+      // pushEvent('LINK', gw.toUpperCase()+' → '+target); // прибрано - тільки голосові
+      lastLink[gw] = target;
+    }
+  } else if(a==='unlinked'){
+    const prev = lastLink[gw];
+    clearTimeout(unlinkTimers[gw]);
+    unlinkTimers[gw] = setTimeout(function(){
+      el.textContent = '— не підключено —';
+      el.className = 'val unlinked';
+      // if(prev){ pushEvent('LINK', gw.toUpperCase()+' відключено'); } // прибрано
+      lastLink[gw] = null;
+    }, 4000);
+  }
+}
+
+// Ініціалізуємо лінки з API
+fetch('http://'+location.hostname+':85/api/network_status').then(r=>r.json()).then(d=>{
+  if(d.dstar_linked && d.dstar_linked!='--'){
+    const el=$('dstar-link');
+    el.textContent=d.dstar_linked;
+    el.className='val '+(d.dstar_linked=='Не підключено'?'unlinked':'linked');
+  }
+  if(d.dmr_master && d.dmr_master!='--'){
+    const el=$('dmr-link');
+    el.textContent=d.dmr_master;
+    el.className='val linked';
+  }
+  if(d.ysf_linked && d.ysf_linked!='--'){
+    const el=$('ysf-link');
+    el.textContent=d.ysf_linked;
+    el.className='val '+(d.ysf_linked=='Не підключено'?'unlinked':'linked');
+  }
+  if(d.nxdn_linked && d.nxdn_linked!='--'){
+    const el=$('nxdn-link');
+    el.textContent=d.nxdn_linked;
+    el.className='val '+(d.nxdn_linked=='Не підключено'?'unlinked':'linked');
+  }
+}).catch(()=>{});
+
+const client = mqtt.connect(url, {reconnectPeriod:3000});
+client.on('connect', ()=>{ setConn(true); client.subscribe('#'); });
+
+// SSE для оновлення network статусу в реальному часі
+const sse = new EventSource('http://'+location.hostname+':85/api/stream');
+sse.onmessage = function(e){
+  try{
+    const d = JSON.parse(e.data);
+    if(!d.network) return;
+    const n = d.network;
+    const fields = [
+      ['dstar-link', n.dstar_linked],
+      ['dmr-link', n.dmr_master],
+      ['ysf-link', n.ysf_linked],
+      ['nxdn-link', n.nxdn_linked]
+    ];
+    fields.forEach(([id, val])=>{
+      if(!val || val==='--') return;
+      const el=$(id); if(!el) return;
+      el.textContent = val;
+      el.className = 'val '+(val==='Не підключено'?'unlinked':'linked');
+    });
+  }catch(e){}
+};
+client.on('reconnect', ()=> setConn(false));
+client.on('close', ()=> setConn(false));
+client.on('error', ()=> setConn(false));
+function handleState(st){
+  // Retained-стан при завантаженні: показати активність, якщо вона є зараз
+  if(st && st.active){
+    showTx(st.mode || '', st.who || '?', (st.dst ? st.dst : '') + (st.src ? ' \u00b7 ' + st.src : ''));
+  }
+}
+client.on('message', (topic, payload)=>{
+  let o; try{ o = JSON.parse(payload.toString()); }catch(e){ return; }
+  if(topic==='mmdvm/state'){ handleState(o); }
+  else if(topic==='mmdvm/json') handleMmdvm(o);
+  else if(topic==='ysf-gateway/json') handleLink('ysf', o);
+  else if(topic==='nxdn-gateway/json') handleLink('nxdn', o);
+});
+</script>
+</body>
+</html>

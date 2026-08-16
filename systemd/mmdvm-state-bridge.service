@@ -1,0 +1,13 @@
+[Unit]
+Description=MMDVM State Bridge (retained state for Live page)
+After=mosquitto.service
+Wants=mosquitto.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/dashboard/mmdvm-state-bridge.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
