@@ -94,7 +94,7 @@ def _init_network_status_enabled():
         _network_status_cache["ysf_enabled"] = cp.get("System Fusion Network", "Enable", fallback="0")
         _network_status_cache["nxdn_enabled"] = cp.get("NXDN Network", "Enable", fallback="0")
         _network_status_cache["dstar_enabled"] = cp.get("D-Star Network", "Enable", fallback="0")
-        # DMR-майстер - зчитуємо активні мережі з конфігу DMRGateway
+        # DMR master - read active networks from DMRGateway config
         if _network_status_cache["dmr_enabled"] == "1":
             dmr_names = []
             try:
@@ -227,7 +227,7 @@ def _tail_activity():
                     # Оновлюємо active прапорці
                     for e in entries:
                         e['active'] = active_tx.get(e['mode']+e['callsign'], False)
-                    _activity_cache = list(entries[:20])
+                    _activity_cache = list(entries[:100])
                     # Відкриваємо для tail і читаємо до реального кінця
                     file_obj = open(log, encoding="utf-8", errors="ignore")
                     while file_obj.readline(): pass
@@ -256,7 +256,7 @@ def _tail_activity():
                             seen_active.add(key)
                         else:
                             entry['active'] = False
-                    _activity_cache = list(entries[:20])
+                    _activity_cache = list(entries[:100])
                 else:
                     # Навіть без нових рядків — оновлюємо active стан
                     seen_active = set()
@@ -267,7 +267,7 @@ def _tail_activity():
                             seen_active.add(key)
                         else:
                             entry['active'] = False
-                    _activity_cache = list(entries[:20])
+                    _activity_cache = list(entries[:100])
                     _time.sleep(0.2)
             else:
                 _time.sleep(1)
@@ -621,7 +621,7 @@ def _parse_activity():
                 is_active = active_tx.get(key, active_tx.get(mode, False))
                 entries.append({"time": ts, "epoch": ts_epoch, "mode": mode,
                     "callsign": callsign, "target": target, "src": src, "active": is_active})
-                if len(entries) >= 20: break
+                if len(entries) >= 100: break
             except: continue
     except: pass
     return entries
@@ -656,6 +656,10 @@ def _record_metric_history():
             if now - _metric_history_ts > 300:
                 tval = _system_cache.get('temp', '')
                 tnum = float(str(tval).replace('\u00b0C','').strip()) if tval else None
+                _mp = _system_cache.get('mem_percent', 0)
+                if not _mp:
+                    time.sleep(5)
+                    continue
                 _metric_history.append({
                     "t": int(now),
                     "cpu": _system_cache.get('cpu', 0),
@@ -685,7 +689,7 @@ app.secret_key = secrets.token_hex(32)
 
 # Пароль адміна - хеш зберігається у файлі, fallback на стандартний
 ADMIN_PASS_FILE = "/opt/dashboard/admin_pass.hash"
-_DEFAULT_ADMIN_HASH = hashlib.sha256("passw0rd".encode()).hexdigest()  # ЗМІНІТЬ це після встановлення через панель адміністратора!
+_DEFAULT_ADMIN_HASH = hashlib.sha256("passw0rd".encode()).hexdigest()  # ЗМІНІТЬ пароль після встановлення!
 
 def get_admin_hash():
     try:
@@ -1148,6 +1152,7 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
 .log-tab { padding:4px 10px; border-radius:6px; font-size:13px; cursor:pointer; border:1px solid var(--border); background:transparent; color:var(--muted); font-family:var(--font-mono); transition:all .2s; }
 .log-tab:hover { border-color:var(--accent); color:var(--accent); }
 .log-tab.active { background:rgba(0,212,255,.1); border-color:var(--accent); color:var(--accent); }
+.logs-header-title { display:none !important; }
 .logs-body { padding:16px 20px; height:280px; overflow-y:auto; font-family:var(--font-mono); font-size:13px; line-height:1.8; }
 .logs-body::-webkit-scrollbar { width:4px; }
 .logs-body::-webkit-scrollbar-track { background:var(--bg); }
@@ -1225,7 +1230,11 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
   .stat-card .progress-bar { width:100%; }
   .services-grid { grid-template-columns:repeat(2,1fr); gap:10px; }
   .btn { padding:6px 10px; font-size:13px; }
-  .logs-body { height:200px; font-size:12px; }
+  .logs-body { height:calc(100vh - 120px); min-height:400px; font-size:12px; }
+  .logs-header { flex-direction:column; align-items:stretch; gap:6px; }
+  .logs-header-title { display:none; }
+  .logs-tabs { flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:4px; }
+  .log-tab { white-space:nowrap; flex-shrink:0; }
   .services-grid { grid-template-columns:repeat(2,1fr) !important; }
   .service-card { flex-direction:column; align-items:flex-start; padding:8px; gap:4px; }
   .service-icon { width:20px; height:20px; font-size:11px; }
@@ -1238,8 +1247,24 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
   .header-left .title { font-size:22px !important; }
   .header-left .subtitle { font-size:11px !important; }
   .modal { width:96%; max-height:94vh; }
+  #configs-modal .modal { height:94vh; }
+  .modal-header { padding:10px 16px; border-bottom:none; }
+  .modal-title { font-size:16px; }
+  .modal-body { padding:6px 14px 8px; gap:6px; }
+  .config-path { padding:6px 10px !important; font-size:12px; }
+  .config-tabs { flex-wrap:nowrap; overflow-x:auto; max-height:none; flex-shrink:0; padding-bottom:4px; -webkit-overflow-scrolling:touch; }
+  .config-tab { white-space:nowrap; padding:6px 12px; font-size:13px; flex-shrink:0; }
+  .config-editor { min-height:0; flex:1; font-size:13px; padding:10px; }
+  .config-path { flex-shrink:0; }
+  .modal-footer { flex-wrap:wrap; gap:8px; padding:12px 14px; }
+  .footer-info { width:100%; font-size:11px; order:-1; }
+  .modal-footer > div { width:100%; display:flex; gap:8px; }
+  .modal-footer .btn { flex:1; font-size:11px; padding:8px 6px; white-space:nowrap; height:auto; min-height:0; line-height:1.3; }
 }
 @media (max-width: 430px) {
+  .modal-header { padding:6px 16px !important; min-height:0 !important; }
+  .modal-title { font-size:15px !important; margin:0 !important; }
+  .modal-body { padding-top:6px !important; }
   .grid-system { grid-template-columns:repeat(2,1fr); }
   .services-grid { grid-template-columns:1fr 1fr; }
   .header-right .btn span, .subtitle { display:none; }
@@ -1358,14 +1383,14 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
     <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Топ позивних (сьогодні)</div>
     <div id="top-list"></div>
   </div>
-  <div class="section-title" id="logs-title" style="display:none">Logs</div>
+  <div class="section-title" id="logs-title" style="display:none">Журнали</div>
   <div class="logs-panel" id="logs-section" style="display:none">
     <div class="logs-header">
       <div class="logs-header-title">📋 Journal</div>
       <div class="logs-tabs" id="log-tabs"></div>
     </div>
     <div class="logs-body" id="logs-body">
-      <div class="log-line">Select a service to view logs...</div>
+      <div class="log-line">Оберіть сервіс для перегляду журналу...</div>
     </div>
   </div>
 </div>
@@ -1736,12 +1761,14 @@ function initUI() {
       if (isAdmin) { openServiceModal(s.name, s.label); } else { loadLogs(s.name); }
     });
     grid.appendChild(card);
-    const tab = document.createElement('button');
-    tab.className = 'log-tab' + (s.name === activeLog ? ' active' : '');
-    tab.id = 'tab-' + s.name;
-    tab.textContent = s.label;
-    tab.addEventListener('click', () => loadLogs(s.name));
-    tabs.appendChild(tab);
+    if (s.name !== 'md380-emu') {
+      const tab = document.createElement('button');
+      tab.className = 'log-tab' + (s.name === activeLog ? ' active' : '');
+      tab.id = 'tab-' + s.name;
+      tab.textContent = s.label;
+      tab.addEventListener('click', () => loadLogs(s.name));
+      tabs.appendChild(tab);
+    }
   });
 }
 
@@ -1847,6 +1874,7 @@ async function openChart(metric) {
   var plotW = W - padL - padR, plotH = H - padT - padB;
   var vals = pts.map(function(p){ return p.v; });
   var vmin = Math.min.apply(null, vals), vmax = Math.max.apply(null, vals);
+  var vminReal = vmin;
   if (metric === 'cpu') {
     vmin = 0;
     vmax = Math.max(Math.ceil(vmax * 1.2), 5);
@@ -1923,7 +1951,7 @@ async function openChart(metric) {
   ctx.fillStyle = colors[metric] + '22';
   ctx.fill();
   var cur = pts[pts.length-1].v;
-  infoEl.textContent = 'Точок: ' + pts.length + ' | мін ' + vmin.toFixed(0) + units[metric] + ' / макс ' + Math.max.apply(null,vals).toFixed(0) + units[metric] + ' / зараз ' + cur.toFixed(1) + units[metric];
+  infoEl.textContent = 'Точок: ' + pts.length + ' | мін ' + vminReal.toFixed(1) + units[metric] + ' / макс ' + Math.max.apply(null,vals).toFixed(1) + units[metric] + ' / зараз ' + cur.toFixed(1) + units[metric];
 }
 
 function animateValue(id, to, suffix='', duration=800) {
@@ -2270,9 +2298,16 @@ function setModeFilter(mode, btn) {
 }
 function applyModeFilter() {
   var rows = document.querySelectorAll('#activity-body tr');
+  var shown = 0;
   for (var i = 0; i < rows.length; i++) {
     var m = rows[i].getAttribute('data-mode');
-    rows[i].style.display = (currentModeFilter === 'all' || m === currentModeFilter) ? '' : 'none';
+    var match = (currentModeFilter === 'all' || m === currentModeFilter);
+    if (match && shown < 20) {
+      rows[i].style.display = '';
+      shown++;
+    } else {
+      rows[i].style.display = 'none';
+    }
   }
 }
 
@@ -2355,7 +2390,20 @@ def api_network_status():
         dmr_net_enabled = cp2.get("DMR Network", "Enable", fallback="0")
         if dmr_net_enabled == "1":
             gw_addr = cp2.get("DMR Network", "GatewayAddress", fallback="")
-            if gw_addr:
+            names = []
+            try:
+                gw2 = _cp2.RawConfigParser(strict=False)
+                gw2.read("/opt/DMRGateway/DMRGateway.ini")
+                for sec in gw2.sections():
+                    if sec.startswith("DMR Network") and gw2.get(sec, "Enabled", fallback="0") == "1":
+                        nm = gw2.get(sec, "Name", fallback="").strip()
+                        if nm:
+                            names.append(nm)
+            except Exception:
+                pass
+            if names:
+                result["dmr_master"] = ", ".join(names)
+            elif gw_addr:
                 result["dmr_master"] = gw_addr
             else:
                 result["dmr_master"] = "Не підключено"
@@ -2385,7 +2433,7 @@ def api_network_status():
 
 @app.route("/api/activity")
 def api_activity():
-    return jsonify({"activity": _activity_cache[:20], "today_count": _count_today_qso()})
+    return jsonify({"activity": _activity_cache[:100], "today_count": _count_today_qso()})
 
 
 @app.route("/api/history")
@@ -2399,7 +2447,7 @@ def api_stream():
         while True:
             try:
                 sys_data = {k: v for k, v in _system_cache.items()}
-                act_data = list(_activity_cache[:20])
+                act_data = list(_activity_cache[:100])
                 sys_data['activity'] = act_data
                 global _today_count, _today_count_ts, _hourly_cache, _top_cache
                 if time.time() - _today_count_ts > 10:
