@@ -1,0 +1,12 @@
+[Unit]
+Description=NXDNGateway journal to file logger
+After=nxdngateway.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/journal2log nxdngateway NXDNGateway
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

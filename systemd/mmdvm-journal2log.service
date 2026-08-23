@@ -1,0 +1,12 @@
+[Unit]
+Description=MMDVMHost journal to file logger
+After=mmdvmhost.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/journal2log mmdvmhost MMDVM
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

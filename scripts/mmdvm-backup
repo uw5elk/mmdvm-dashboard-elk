@@ -1,0 +1,106 @@
+#!/bin/bash
+# Бекап конфігів MMDVM-хотспота -> локальний архів + Google Drive (rclone).
+#
+# Встановлення:
+#   sudo cp scripts/mmdvm-backup /usr/local/bin/
+#   sudo chmod +x /usr/local/bin/mmdvm-backup
+#
+# Запуск:
+#   sudo mmdvm-backup
+#
+# Файли, яких немає в системі, пропускаються з поміткою "! немає:".
+
+set -u
+
+# --- Налаштування ---------------------------------------------------------
+# Шлях на Google Drive (remote має бути налаштований через `rclone config`).
+# Залиште порожнім, щоб не вивантажувати в хмару.
+REMOTE="gdrive:Backup/PiBackup/"
+
+# Куди складати локальні архіви.
+OUTDIR="/home/pi"
+
+# Скільки локальних архівів тримати (старіші видаляються).
+KEEP=5
+# --------------------------------------------------------------------------
+
+TS=$(date +%Y%m%d-%H%M)
+OUT="${OUTDIR}/config-backup-${TS}.tar.gz"
+
+ITEMS=(
+  # MMDVMHost і шлюзи
+  /opt/MMDVMHost/MMDVM-Host.ini
+  /opt/DMRGateway/DMRGateway.ini
+  /opt/YSFClients/YSFGateway/YSFGateway.ini
+  /opt/NXDNClients/NXDNGateway/NXDNGateway.ini
+  /etc/ircddbgateway
+
+  # Рефлектори
+  /opt/pYSFReflector/YSFReflector.ini
+  /opt/DVReflectors/NXDNReflector/NXDNReflector.ini
+
+  # DVSwitch
+  /opt/MMDVM_Bridge/MMDVM_Bridge.ini
+  /opt/MMDVM_Bridge/DVSwitch.ini
+  /opt/Analog_Bridge/Analog_Bridge.ini
+
+  # Дашборд (разом із секретами — не публікувати архів!)
+  /opt/dashboard/dashboard.py
+  /opt/dashboard/itu_flags.py
+  /opt/dashboard/mmdvm-state-bridge.py
+  /opt/dashboard/admin_pass.hash
+  /opt/dashboard/bm_apikey
+  /var/www/html/live/index.html
+
+  # Допоміжне
+  /etc/cron.d/mmdvm-cleanup
+  /usr/local/bin/check-updates
+  /usr/local/bin/update-service
+  /usr/local/bin/mmdvm-backup
+)
+
+EXIST=()
+for f in "${ITEMS[@]}"; do
+  if [ -e "$f" ]; then
+    EXIST+=("$f")
+  else
+    echo "! немає: $f"
+  fi
+done
+
+if [ ${#EXIST[@]} -eq 0 ]; then
+  echo "Помилка: жодного файлу для бекапу не знайдено." >&2
+  exit 1
+fi
+
+tar czf "$OUT" "${EXIST[@]}" /etc/systemd/system/*.service 2>/dev/null
+
+if [ ! -s "$OUT" ]; then
+  echo "Помилка: архів не створено." >&2
+  exit 1
+fi
+
+# Власником робимо pi, щоб rclone і подальші операції йшли без sudo
+if id pi >/dev/null 2>&1; then
+  chown pi:pi "$OUT"
+fi
+
+echo "Створено: $OUT ($(du -h "$OUT" | cut -f1), файлів: $(tar tzf "$OUT" | wc -l))"
+
+# --- Вивантаження в хмару -------------------------------------------------
+if [ -n "$REMOTE" ] && command -v rclone >/dev/null 2>&1; then
+  if id pi >/dev/null 2>&1; then
+    sudo -u pi rclone copy "$OUT" "$REMOTE" && echo "Вивантажено: $REMOTE"
+  else
+    rclone copy "$OUT" "$REMOTE" && echo "Вивантажено: $REMOTE"
+  fi
+fi
+
+# --- Прибирання старих локальних архівів ----------------------------------
+if [ "$KEEP" -gt 0 ]; then
+  ls -1t "${OUTDIR}"/config-backup-*.tar.gz 2>/dev/null \
+    | tail -n +$((KEEP + 1)) \
+    | while IFS= read -r old; do
+        rm -f "$old" && echo "Видалено старий: $old"
+      done
+fi

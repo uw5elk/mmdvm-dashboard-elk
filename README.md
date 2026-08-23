@@ -85,6 +85,13 @@ MMDVMHost  ->  DMRGateway  ->  DMR-майстер (HBLink / Brandmeister / TGIF 
 ланка, що виконує рукостискання логіну. Цей репозиторій містить приклад
 конфігу DMRGateway і systemd-юніт для нього.
 
+### Джерело даних про активність
+
+Таблиця активності й гістограма будуються з добових лог-файлів у
+`/var/log/mmdvm/`. Якщо ваші сервіси запускаються через systemd і пишуть
+у journal, а не у файли, потрібен міст `journal2log` — інакше стрічка
+активності буде порожньою. Див. [docs/INSTALL.md](docs/INSTALL.md), розділ 5.
+
 ### Кілька DMR-мереж одночасно
 
 DMRGateway дозволяє підключити кілька DMR-мереж і розділити трафік між ними
@@ -165,6 +172,7 @@ sudo ./install.sh
 # 1. Копіюємо панель
 sudo mkdir -p /opt/dashboard
 sudo cp dashboard/dashboard.py /opt/dashboard/
+sudo cp dashboard/itu_flags.py /opt/dashboard/
 
 # 2. Встановлюємо CLI-помічники
 sudo cp scripts/check-updates scripts/update-service /usr/local/bin/
@@ -193,6 +201,27 @@ sudo cp systemd/mmdvm-state-bridge.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now mmdvm-state-bridge
 ```
 
+## Резервне копіювання
+
+Два рівні: швидкий архів конфігів (секунди, ~50 КБ) і повний образ SD-карти
+(1–1.5 год, ~1.7 ГБ), обидва з вивантаженням на Google Drive через `rclone`.
+
+```bash
+sudo cp scripts/mmdvm-backup /usr/local/bin/
+sudo chmod +x /usr/local/bin/mmdvm-backup
+sudo mmdvm-backup
+```
+
+Повна схема, включно зі зняттям образу живої системи стрімом у хмару
+й подальшим стисненням через PiShrink — у [docs/BACKUP.md](docs/BACKUP.md).
+
+## Усунення несправностей
+
+Реальні проблеми та їх вирішення (порожня таблиця активності, відмова
+BrandMeister, відпадання D-Star-лінка, undervoltage, Wi-Fi після
+перезавантаження роутера) — у
+[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
+
 ## Вимоги
 
 - Raspberry Pi (перевірено на Pi 3, Debian Trixie)
@@ -200,23 +229,38 @@ sudo systemctl daemon-reload && sudo systemctl enable --now mmdvm-state-bridge
 - Python 3 з `flask` і `paho-mqtt`
 - MQTT-брокер (напр. `mosquitto`), що публікує події шлюзу
 - `DMRGateway` (g4klx) для підключення DMR
+- Якісне живлення 5 В / 2.5 А з коротким товстим кабелем
 - API-ключ BrandMeister — лише для керування статичними TG (необов'язково)
+- `rclone` — лише для бекапів у хмару (необов'язково)
 
 ## Структура репозиторію
 
 ```
 install.sh                      Інтерактивний інсталятор
+CHANGELOG.md                    Історія змін
+
 dashboard/dashboard.py          Панель на Flask (головний застосунок)
+dashboard/itu_flags.py          Прапорці країн за ITU-префіксом позивного
 dashboard/mmdvm-state-bridge.py Міст стану для Live-сторінки (retained MQTT)
 live/index.html                 Повноекранна Live-сторінка ефіру
+
 scripts/check-updates           CLI: перевірка git-оновлень сервісів
 scripts/update-service          CLI: оновлення сервісу (бекап + автовідкат)
+scripts/journal2log             Міст systemd-journal -> добові лог-файли
+scripts/mmdvm-backup            Бекап конфігів + вивантаження на Google Drive
+
 config-samples/                 Приклади конфігів із заповнювачами
   DMRGateway.ini.sample
   mmdvm-cleanup.cron
-systemd/dmrgateway.service      systemd-юніт для DMRGateway
+
+systemd/dmrgateway.service          systemd-юніт для DMRGateway
 systemd/mmdvm-state-bridge.service  systemd-юніт моста стану
+systemd/mmdvm-journal2log.service   systemd-юніт логера MMDVMHost
+systemd/nxdn-journal2log.service    systemd-юніт логера NXDNGateway
+
 docs/INSTALL.md                 Покрокова інструкція встановлення
+docs/BACKUP.md                  Схема резервного копіювання
+docs/TROUBLESHOOTING.md         Усунення несправностей
 docs/screenshots/               Скріншоти дашборду
 ```
 
@@ -253,6 +297,7 @@ docs/screenshots/               Скріншоти дашборду
 - [g4klx](https://github.com/g4klx) — MMDVMHost, DMRGateway, YSF/NXDN клієнти
 - [DVSwitch](https://github.com/DVSwitch) — MMDVM_Bridge / Analog_Bridge
 - [BrandMeister](https://brandmeister.network) — API для керування TG
+- [PiShrink](https://github.com/Drewsif/PiShrink) — стиснення образів SD
 - Панель — UW5ELK
 
 ## Ліцензія

@@ -1,0 +1,29 @@
+#!/bin/bash
+# Перенаправляє systemd-journal сервіса у добові лог-файли,
+# які читає дашборд (та PHP MMDVM Dashboard).
+#
+# Використання:
+#   journal2log <systemd-юніт> <префікс-файлу> [тека]
+#
+# Приклади:
+#   journal2log mmdvmhost MMDVM
+#     -> /var/log/mmdvm/MMDVM-2026-08-23.log
+#   journal2log nxdngateway NXDNGateway
+#     -> /var/log/mmdvm/NXDNGateway-2026-08-23.log
+#
+# Навіщо: сучасні збірки MMDVMHost і шлюзів часто запускаються з
+# systemd і пишуть у journal, а не у файл. Дашборд же читає саме файли
+# у /var/log/mmdvm/ з датою в назві. Цей скрипт закриває розрив.
+
+set -u
+
+UNIT="${1:?вкажіть systemd-юніт, напр. mmdvmhost}"
+PREFIX="${2:?вкажіть префікс файлу, напр. MMDVM}"
+LOGDIR="${3:-/var/log/mmdvm}"
+
+mkdir -p "$LOGDIR"
+
+journalctl -u "$UNIT" -f -o cat --no-hostname 2>/dev/null | while IFS= read -r line; do
+    logfile="${LOGDIR}/${PREFIX}-$(date +%Y-%m-%d).log"
+    echo "$line" >> "$logfile"
+done
