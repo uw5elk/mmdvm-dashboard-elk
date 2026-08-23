@@ -20,8 +20,12 @@
   якої підключений хотспот, зчитану наживо з робочої конфігурації
 - **Активність шлюзу** — погодинна гістограма передач і таблиця активності у
   стилі "last heard" з позивним, режимом, напрямком, тривалістю та втратами
+- **Графіки за добу** — ЦП, пам'ять, температура з історією на 24 години
+- **Журнали сервісів** — перегляд systemd-логів будь-якого сервіса з браузера
 - **Панель адміністратора** (захищена паролем):
   - **Редактор конфігів** — редагування `.ini` файлів сервісів із браузера
+  - **Статичні TG Brandmeister** — керування статичними групами через BM API
+    (див. нижче)
   - **Менеджер оновлень** — перевірка й застосування git-оновлень сервісів з
     автоматичним бекапом і відкатом при збої
   - **Керування сервісами** — запуск / зупинка / перезапуск сервісів
@@ -30,6 +34,30 @@
 - Адаптивна верстка для мобільних і десктопів
 - **Окрема Live-сторінка** (`/live/`) — повноекранний монітор ефіру в реальному
   часі: хто зараз в ефірі, мережевий статус, стрічка останніх подій
+
+## Керування статичними TG (Brandmeister API)
+
+Панель уміє керувати статичними групами вашого хотспота напряму через
+**BrandMeister API v2** — без заходу в SelfCare, аналогічно до Pi-Star.
+
+Доступно з панелі адміністратора, кнопка **Статичні TG**:
+
+- перегляд поточних статичних груп
+- додавання групи (з вибором таймслота для дуплексних пристроїв)
+- видалення групи
+- **Обірвати QSO** — розірвати поточну передачу
+- **Скинути динамічні** — прибрати всі динамічні групи
+
+**Налаштування:** згенеруйте API-ключ у BrandMeister SelfCare
+(*Profile settings → API Keys → + Add Key*) і введіть його у вікні
+**Статичні TG**. Ключ зберігається локально у `/opt/dashboard/bm_apikey`
+з правами `600` і ніколи не передається нікуди, крім самого BrandMeister.
+
+ID хотспота визначається автоматично з конфігу DMRGateway (секція мережі
+з назвою, що містить `Brandmeister`).
+
+> Для **симплексних** хотспотів BrandMeister очікує таймслот `0` — панель
+> визначає це автоматично з параметра `Duplex` у `[Info]` конфігу DMRGateway.
 
 ## Архітектура
 
@@ -49,6 +77,37 @@ MMDVMHost  ->  DMRGateway  ->  DMR-майстер (HBLink / Brandmeister / TGIF 
 `DMRP`, а не логін `RPTL`) — тому **DMRGateway** обов'язковий як проміжна
 ланка, що виконує рукостискання логіну. Цей репозиторій містить приклад
 конфігу DMRGateway і systemd-юніт для нього.
+
+### Кілька DMR-мереж одночасно
+
+DMRGateway дозволяє підключити кілька DMR-мереж і розділити трафік між ними
+за номерами TG. Приклад для симплексного хотспота (усе на слоті 2), де
+локальні групи йдуть на власний HBLink, а решта — на Brandmeister:
+
+```ini
+# Мережа з конкретними TG має йти ПЕРШОЮ
+[DMR Network 1]
+Enabled=1
+Name=HBLink
+TGRewrite0=2,11,2,11,1
+TGRewrite1=2,22504,2,22504,1
+
+# Мережа з PassAll ловить увесь інший трафік
+[DMR Network 2]
+Enabled=1
+Name=Brandmeister
+TGRewrite0=2,9,2,9,1
+PCRewrite0=2,94000,2,4000,1001
+TypeRewrite0=2,9990,2,9990
+SrcRewrite0=2,4000,2,9,1001
+PassAllPC1=2
+PassAllTG1=2
+```
+
+> **Важливо для симплексних хотспотів:** у секції `[Info]` конфігу DMRGateway
+> обов'язково має бути `Duplex=0`. Без нього шлюз повідомляє майстру, що
+> працює в дуплексі, і BrandMeister відхиляє підключення з помилкою
+> *«has wrong configuration»* у Device Logs, хоча логін і пароль правильні.
 
 ## Встановлення
 
@@ -114,6 +173,19 @@ sudo python3 /opt/dashboard/dashboard.py
 Потім відкрийте `http://<ip-вашого-pi>:85` у браузері.
 **Увійдіть як адміністратор і одразу змініть типовий пароль (`passw0rd`).**
 
+### Live-сторінка та міст стану
+
+Live-сторінка (`live/index.html`) кладеться у веб-корінь, наприклад
+`/var/www/html/live/`. Щоб вона показувала поточну передачу навіть коли
+її відкрили посеред QSO, встановіть міст стану — він тримає останній стан
+у retained-топіку MQTT:
+
+```bash
+sudo cp dashboard/mmdvm-state-bridge.py /opt/dashboard/
+sudo cp systemd/mmdvm-state-bridge.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now mmdvm-state-bridge
+```
+
 ## Вимоги
 
 - Raspberry Pi (перевірено на Pi 3, Debian Trixie)
@@ -121,19 +193,20 @@ sudo python3 /opt/dashboard/dashboard.py
 - Python 3 з `flask` і `paho-mqtt`
 - MQTT-брокер (напр. `mosquitto`), що публікує події шлюзу
 - `DMRGateway` (g4klx) для підключення DMR
+- API-ключ BrandMeister — лише для керування статичними TG (необов'язково)
 
 ## Структура репозиторію
 
 ```
 install.sh                      Інтерактивний інсталятор
 dashboard/dashboard.py          Панель на Flask (головний застосунок)
+dashboard/mmdvm-state-bridge.py Міст стану для Live-сторінки (retained MQTT)
+live/index.html                 Повноекранна Live-сторінка ефіру
 scripts/check-updates           CLI: перевірка git-оновлень сервісів
 scripts/update-service          CLI: оновлення сервісу (бекап + автовідкат)
 config-samples/                 Приклади конфігів із заповнювачами
   DMRGateway.ini.sample
   mmdvm-cleanup.cron
-dashboard/mmdvm-state-bridge.py Міст стану для Live-сторінки (retained MQTT)
-live/index.html                 Повноекранна Live-сторінка ефіру
 systemd/dmrgateway.service      systemd-юніт для DMRGateway
 systemd/mmdvm-state-bridge.service  systemd-юніт моста стану
 docs/INSTALL.md                 Покрокова інструкція встановлення
@@ -168,6 +241,7 @@ docs/screenshots/               Скріншоти дашборду
 
 - [g4klx](https://github.com/g4klx) — MMDVMHost, DMRGateway, YSF/NXDN клієнти
 - [DVSwitch](https://github.com/DVSwitch) — MMDVM_Bridge / Analog_Bridge
+- [BrandMeister](https://brandmeister.network) — API для керування TG
 - Панель — UW5ELK
 
 ## Ліцензія
