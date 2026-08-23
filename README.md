@@ -237,6 +237,10 @@ docs/screenshots/               Скріншоти дашборду
 
 ![Скріншот 11](docs/screenshots/11.png)
 
+![Керування статичними TG](docs/screenshots/12.png)
+
+![Керування статичними TG — введення ключа](docs/screenshots/13.png)
+
 ## Подяки
 
 - [g4klx](https://github.com/g4klx) — MMDVMHost, DMRGateway, YSF/NXDN клієнти
