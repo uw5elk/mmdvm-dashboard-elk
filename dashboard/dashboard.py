@@ -34,6 +34,32 @@ def _load_dmr_ids():
     except Exception:
         pass
 
+
+# MCC (перші 3 цифри DMR ID) -> ISO-код країни (ITU E.212)
+_MCC_RAW = ('202GR 204NL 206BE 208FR 212MC 213AD 214ES 215ES 216HU 218BA 219HR 220RS 221XK 222IT 223IT 225IT 226RO 228CH 230CZ 231SK 232AT 234GB 235GB 238DK 240SE 242NO 244FI 246LT 247LV 248EE 250RU 251RU 255UA 257BY 259MD 260PL 261PL 262DE 263DE 264DE 265DE 266GI 268PT 269PT 270LU 272IE 274IS 276AL 278MT 280CY 282GE 283AM 284BG 286TR 288FO 290GL 292SM 293SI 294MK 295LI 297ME 302CA 303CA 308PM 310US 311US 312US 313US 314US 315US 316US 317US 318US 319US 320US 321US 322US 323US 324US 325US 326US 327US 328US 329US 330PR 332VI 334MX 335MX 338JM 340GP 342BB 344AG 346KY 348VG 350BM 352GD 354MS 356KN 358LC 360VC 362CW 363AW 364BS 365AI 366DM 368CU 370DO 372HT 374TT 376TC 400AZ 401KZ 402BT 404IN 405IN 406IN 410PK 412AF 413LK 414MM 415LB 416JO 417SY 418IQ 419KW 420SA 421YE 422OM 423PS 424AE 425IL 426BH 427QA 428MN 429NP 430AE 431AE 432IR 434UZ 436TJ 437KG 438TM 440JP 441JP 450KR 452VN 454HK 455MO 456KH 457LA 460CN 461CN 466TW 467KP 470BD 472MV 502MY 505AU 510ID 514TL 515PH 520TH 525SG 528BN 530NZ 534MP 535GU 536NR 537PG 539TO 540SB 541VU 542FJ 543WF 544AS 545KI 546NC 547PF 548CK 549WS 550FM 551MH 552PW 553TV 554TK 555NU 602EG 603DZ 604MA 605TN 606LY 607GM 608SN 609MR 610ML 611GN 612CI 613BF 614NE 615TG 616BJ 617MU 618LR 619SL 620GH 621NG 622TD 623CF 624CM 625CV 626ST 627GQ 628GA 629CG 630CD 631AO 632GW 633SC 634SD 635RW 636ET 637SO 638DJ 639KE 640TZ 641UG 642BI 643MZ 645ZM 646MG 647RE 648ZW 649NA 650MW 651LS 652BW 653SZ 654KM 655ZA 657ER 658SH 659SS 702BZ 704GT 706SV 708HN 710NI 712CR 714PA 716PE 722AR 724BR 730CL 732CO 734VE 736BO 738GY 740EC 742GF 744PY 746SR 748UY 750FK')
+_MCC = {x[:3]: x[3:] for x in _MCC_RAW.split()}
+
+try:
+    import sys as _sys
+    if "/opt/dashboard" not in _sys.path:
+        _sys.path.insert(0, "/opt/dashboard")
+    from itu_flags import call_flag as _call_flag
+except Exception:
+    def _call_flag(cs): return ""
+
+def _dmr_flag(raw):
+    """Емодзі-прапорець країни за перші 3 цифри DMR ID."""
+    try:
+        raw = str(raw).strip()
+        if not raw.isdigit() or len(raw) < 6:
+            return ""
+        cc = _MCC.get(raw[:3], "")
+        if not cc:
+            return ""
+        return chr(0x1F1E6 + ord(cc[0]) - 65) + chr(0x1F1E6 + ord(cc[1]) - 65)
+    except Exception:
+        return ""
+
 def dmr_id_to_callsign(cs):
     # Конвертує числовий DMR ID у позивний, якщо є в базі
     if cs and cs.isdigit():
@@ -112,7 +138,7 @@ def _init_network_status_enabled():
                 _network_status_cache["dmr_master"] = ", ".join(dmr_names)
             else:
                 gw = cp.get("DMR Network", "GatewayAddress", fallback="")
-                _network_status_cache["dmr_master"] = gw
+                _network_status_cache["dmr_master"] = "HBLink IONOS" if "217.154.145.182" in gw else gw
         # D-Star IRC
         try:
             with open("/etc/ircddbgateway") as f:
@@ -171,10 +197,15 @@ def _tail_activity():
             ts_epoch = (dt_utc - datetime(1970,1,1)).total_seconds()
             src = "RF" if ("received RF" in line or "RF header from" in line or "RF late entry" in line) else ("LNet" if "Begin TX" in line else "Net")
             callsign = target = ""
+            flag = ""
             if "from" in line and " to " in line:
                 fi = line.index(" from ") + 6
                 ti = line.index(" to ", fi)
-                callsign = dmr_id_to_callsign(line[fi:ti].strip())
+                _raw = line[fi:ti].strip()
+                flag = _dmr_flag(_raw)
+                callsign = dmr_id_to_callsign(_raw)
+                if not flag:
+                    flag = _call_flag(callsign)
                 target = line[ti+4:].strip()
                 if "," in target: target = target.split(",")[0].strip()
             if not callsign: return None
@@ -194,7 +225,7 @@ def _tail_activity():
                 return {"_update_dur": True, "mode": mode, "callsign": callsign, "dur": dur, "loss": loss, "ber": ber}
             elif any(x in line for x in ["received network","received RF","Begin TX","RF header from","received RF late entry","received RF header"]):
                 active_tx[key] = True
-                return {"time":ts,"epoch":ts_epoch,"mode":mode,"callsign":callsign,"target":target,"src":src,"active":True,"dur":"---","loss":"---","ber":"---"}
+                return {"time":ts,"epoch":ts_epoch,"mode":mode,"flag":flag,"callsign":callsign,"target":target,"src":src,"active":True,"dur":"---","loss":"---","ber":"---"}
         except: pass
         return None
 
@@ -223,11 +254,11 @@ def _tail_activity():
                                             break
                                 else:
                                     entries.insert(0, e)
-                                    if len(entries) > 20: entries.pop()
+                                    if len(entries) > 1000: entries.pop()
                     # Оновлюємо active прапорці
                     for e in entries:
                         e['active'] = active_tx.get(e['mode']+e['callsign'], False)
-                    _activity_cache = list(entries[:100])
+                    _activity_cache = list(entries[:1000])
                     # Відкриваємо для tail і читаємо до реального кінця
                     file_obj = open(log, encoding="utf-8", errors="ignore")
                     while file_obj.readline(): pass
@@ -246,7 +277,7 @@ def _tail_activity():
                                     break
                         else:
                             entries.insert(0, e)
-                            if len(entries) > 20: entries.pop()
+                            if len(entries) > 1000: entries.pop()
                     # TX тільки для першого (найновішого) активного рядка
                     seen_active = set()
                     for entry in entries:
@@ -256,7 +287,7 @@ def _tail_activity():
                             seen_active.add(key)
                         else:
                             entry['active'] = False
-                    _activity_cache = list(entries[:100])
+                    _activity_cache = list(entries[:1000])
                 else:
                     # Навіть без нових рядків — оновлюємо active стан
                     seen_active = set()
@@ -267,7 +298,7 @@ def _tail_activity():
                             seen_active.add(key)
                         else:
                             entry['active'] = False
-                    _activity_cache = list(entries[:100])
+                    _activity_cache = list(entries[:1000])
                     _time.sleep(0.2)
             else:
                 _time.sleep(1)
@@ -613,13 +644,15 @@ def _parse_activity():
                 if "from" in line and " to " in line:
                     from_idx = line.index(" from ") + 6
                     to_idx = line.index(" to ", from_idx)
-                    callsign = dmr_id_to_callsign(line[from_idx:to_idx].strip())
+                    _raw_src = line[from_idx:to_idx].strip()
+                    flag = _dmr_flag(_raw_src)
+                    callsign = dmr_id_to_callsign(_raw_src)
                     target = line[to_idx+4:].strip()
                     if "," in target: target = target.split(",")[0].strip()
                 if not callsign: continue
                 key = mode + callsign
                 is_active = active_tx.get(key, active_tx.get(mode, False))
-                entries.append({"time": ts, "epoch": ts_epoch, "mode": mode,
+                entries.append({"time": ts, "epoch": ts_epoch, "mode": mode, "flag": flag,
                     "callsign": callsign, "target": target, "src": src, "active": is_active})
                 if len(entries) >= 100: break
             except: continue
@@ -2441,7 +2474,7 @@ function setModeFilter(mode, btn) {
   var btns = document.querySelectorAll('#mode-filter .filter-btn');
   for (var i = 0; i < btns.length; i++) btns[i].classList.remove('active');
   if (btn) btn.classList.add('active');
-  applyModeFilter();
+  fetchFiltered(true);
   if (lastHourly) updateHistogram(lastHourly);
   if (lastTop) updateTopCallsigns(lastTop);
   updateTodayCount();
@@ -2461,7 +2494,21 @@ function applyModeFilter() {
   }
 }
 
+var _lastFilterFetch = 0;
+function fetchFiltered(force) {
+  var now = Date.now();
+  if (!force && now - _lastFilterFetch < 2000) return;
+  _lastFilterFetch = now;
+  fetch('/api/activity?mode=' + encodeURIComponent(currentModeFilter) + '&limit=20')
+    .then(function(r) { return r.json(); })
+    .then(function(d) { renderRows(d.activity || []); })
+    .catch(function(e) { console.error('fetchFiltered error:', e); });
+}
 function updateActivity(activity) {
+  if (currentModeFilter !== 'all') { fetchFiltered(); return; }
+  renderRows(activity);
+}
+function renderRows(activity) {
   const tbody = document.getElementById('activity-body');
   if (!tbody || !activity) return;
 
@@ -2494,7 +2541,7 @@ function updateActivity(activity) {
         '<td><span class="m-extra" style="font-size:12px;color:var(--yellow)">' + dateStr + '</span><span style="color:var(--text)">' + e.time + '</span></td>' +
         '<td><span class="mode-badge ' + getModeClass(e.mode) + '">' + e.mode + '</span>' +
           '<span class="m-extra" style="margin-top:3px">' + callsignLink(e.callsign, isActive) + txBadge + '</span></td>' +
-        '<td>' + callsignLink(e.callsign, isActive) + txBadge + '</td>' +
+        '<td>' + (e.flag ? e.flag + ' ' : '') + callsignLink(e.callsign, isActive) + txBadge + '</td>' +
         '<td class="col-target">' + e.target + '</td>' +
         '<td><span class="' + srcClass + '">' + e.src + '</span>' +
           '<span class="m-extra" style="margin-top:3px;font-size:11px;color:var(--text)">' + (e.dur||'---') + '</span></td>' +
@@ -2505,7 +2552,7 @@ function updateActivity(activity) {
         '</tr>';
     });
     tbody.innerHTML = rows.join('');
-    applyModeFilter();
+    if (currentModeFilter === 'all') applyModeFilter();
   } catch(ex) { console.error('updateActivity error:', ex); }
 }
 </script>
@@ -2711,7 +2758,20 @@ def api_bm_del(tg):
 
 @app.route("/api/activity")
 def api_activity():
-    return jsonify({"activity": _activity_cache[:100], "today_count": _count_today_qso()})
+    mode = (request.args.get("mode") or "").strip()
+    try:
+        limit = int(request.args.get("limit", 20))
+    except ValueError:
+        limit = 20
+    limit = max(1, min(limit, 1000))
+    rows = _activity_cache
+    if mode and mode.lower() != "all":
+        if mode.upper() == "DMR":
+            rows = [e for e in rows if e.get("mode", "").startswith("DMR")]
+        else:
+            rows = [e for e in rows if e.get("mode", "") == mode]
+    return jsonify({"activity": rows[:limit], "today_count": _count_today_qso(),
+                    "total": len(rows), "mode": mode or "all"})
 
 
 @app.route("/api/history")

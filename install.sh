@@ -210,6 +210,9 @@ if [ "$INST_DASH" = "1" ]; then
     mkdir -p "$OPT/dashboard"
     if [ -f "$REPO_DIR/dashboard/dashboard.py" ]; then
         cp "$REPO_DIR/dashboard/dashboard.py" "$OPT/dashboard/dashboard.py"
+        if [ -f "$REPO_DIR/dashboard/itu_flags.py" ]; then
+            cp "$REPO_DIR/dashboard/itu_flags.py" "$OPT/dashboard/itu_flags.py"
+        fi
         make_unit "dashboard" "MMDVM Dashboard" "/usr/bin/python3 $OPT/dashboard/dashboard.py" "network.target mosquitto.service"
         say "Дашборд встановлено на порту 85."
         warn "Типовий пароль адміністратора: passw0rd - ЗМІНІТЬ його після першого входу!"
