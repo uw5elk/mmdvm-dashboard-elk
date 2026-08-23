@@ -1295,6 +1295,7 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
     <a class="btn" href="/nxdn/" target="_blank">🔵 NXDN</a>
     <a class="btn" href="/dvswitch/" target="_blank">📊 DVS</a>
     <a class="btn" href="/mmdvm/" target="_blank" id="mmdvm-btn" style="display:none">📡 MMDVM</a>
+    <button class="btn" id="bmtg-btn" style="display:none" onclick="openBmTg()">⭐ Статичні TG</button>
     <button class="btn" id="admin-btn" onclick="openAdmin()">🔐 Адмін</button>
     <button class="btn" id="configs-btn" onclick="openConfigs()" style="display:none">⚙️ Конфіги</button>
     <button class="btn" id="updates-btn" onclick="openUpdates()" style="display:none">🔄 Оновлення</button>
@@ -1453,6 +1454,40 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
 </div>
 
 <!-- Configs Modal -->
+<div class="modal-overlay" id="bmtg-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">⭐ Статичні TG (Brandmeister)</div>
+      <button class="modal-close" onclick="closeModal('bmtg-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <div id="bmtg-info" style="font-size:12px;color:var(--muted)"></div>
+        <button class="btn btn-sm" onclick="document.getElementById('bmtg-keybox').style.display='flex'">Змінити ключ</button>
+      </div>
+      <div id="bmtg-keybox" style="display:none;gap:8px;flex-direction:column">
+        <div style="font-size:12px;color:var(--muted)">Введіть API-ключ Brandmeister (SelfCare → Profile settings → API Keys)</div>
+        <input type="password" class="input-field" id="bmtg-key" placeholder="API ключ">
+        <button class="btn btn-success" onclick="saveBmKey()">Зберегти ключ</button>
+      </div>
+      <div id="bmtg-list" style="display:flex;flex-direction:column;gap:6px"></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select class="input-field" id="bmtg-slot" style="display:none;width:auto">
+          <option value="1">TS1</option>
+          <option value="2" selected>TS2</option>
+        </select>
+        <input type="text" class="input-field" id="bmtg-new" placeholder="Номер TG" style="flex:1">
+        <button class="btn btn-primary" onclick="addBmTg()">Додати</button>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" style="flex:1" onclick="bmAction('dropCallRoute')">Обірвати QSO</button>
+        <button class="btn btn-sm" style="flex:1" onclick="bmAction('dropDynamicGroups')">Скинути динамічні</button>
+      </div>
+      <div id="bmtg-msg" style="font-size:12px"></div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="configs-modal">
   <div class="modal">
     <div class="modal-header">
@@ -1578,6 +1613,120 @@ async function applyUpdate(name) {
   }
 }
 
+
+async function openBmTg() {
+  document.getElementById('bmtg-modal').classList.add('open');
+  document.getElementById('bmtg-msg').textContent = '';
+  await loadBmTg();
+}
+
+async function loadBmTg() {
+  const info = document.getElementById('bmtg-info');
+  const list = document.getElementById('bmtg-list');
+  const keybox = document.getElementById('bmtg-keybox');
+  info.textContent = '\u0417\u0430\u0432\u0430\u043d\u0442\u0430\u0436\u0435\u043d\u043d\u044f...';
+  list.innerHTML = '';
+  try {
+    const r = await fetch('/api/bm/static');
+    const d = await r.json();
+    if (!d.ok) {
+      info.textContent = d.error || '\u041f\u043e\u043c\u0438\u043b\u043a\u0430';
+      keybox.style.display = 'flex';
+      return;
+    }
+    keybox.style.display = d.haskey ? 'none' : 'flex';
+    window._bmDuplex = !!d.duplex;
+    document.getElementById('bmtg-slot').style.display = d.duplex ? '' : 'none';
+    info.textContent = 'ID: ' + d.id + (d.haskey ? '' : ' \u2014 \u043a\u043b\u044e\u0447 \u043d\u0435 \u0437\u0430\u0434\u0430\u043d\u043e');
+    if (!d.static.length) {
+      list.innerHTML = '<div style="color:var(--muted);font-size:12px">\u041d\u0435\u043c\u0430\u0454 \u0441\u0442\u0430\u0442\u0438\u0447\u043d\u0438\u0445 TG</div>';
+      return;
+    }
+    d.static.forEach(function(x) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px';
+      var slotTxt = window._bmDuplex ? ' <span style="color:var(--muted);font-size:11px">TS' + x.slot + '</span>' : '';
+      row.innerHTML = '<span style="font-family:var(--font-mono);color:var(--accent)">TG ' + x.tg + '</span>' + slotTxt;
+      const b = document.createElement('button');
+      b.className = 'btn btn-sm btn-danger';
+      b.textContent = '\u2715';
+      b.onclick = function(){ delBmTg(x.tg, x.slot); };
+      row.appendChild(b);
+      list.appendChild(row);
+    });
+  } catch(e) {
+    info.textContent = '\u041f\u043e\u043c\u0438\u043b\u043a\u0430: ' + e;
+  }
+}
+
+async function saveBmKey() {
+  const k = document.getElementById('bmtg-key').value.trim();
+  const msg = document.getElementById('bmtg-msg');
+  const r = await fetch('/api/bm/key', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({key:k})});
+  const d = await r.json();
+  if (d.ok) {
+    document.getElementById('bmtg-key').value = '';
+    msg.style.color = 'var(--green)';
+    msg.textContent = '\u041a\u043b\u044e\u0447 \u0437\u0431\u0435\u0440\u0435\u0436\u0435\u043d\u043e';
+    await loadBmTg();
+  } else {
+    msg.style.color = 'var(--red)';
+    msg.textContent = d.error || '\u041f\u043e\u043c\u0438\u043b\u043a\u0430';
+  }
+}
+
+async function addBmTg() {
+  const tg = document.getElementById('bmtg-new').value.trim();
+  const msg = document.getElementById('bmtg-msg');
+  if (!tg) return;
+  msg.style.color = 'var(--muted)';
+  msg.textContent = '...';
+  const r = await fetch('/api/bm/static', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tg:tg, slot: window._bmDuplex ? parseInt(document.getElementById('bmtg-slot').value) : 0})});
+  const d = await r.json();
+  if (d.ok) {
+    document.getElementById('bmtg-new').value = '';
+    msg.style.color = 'var(--green)';
+    msg.textContent = 'TG ' + tg + ' \u0434\u043e\u0434\u0430\u043d\u043e';
+    await loadBmTg();
+  } else {
+    msg.style.color = 'var(--red)';
+    msg.textContent = JSON.stringify(d.result || d.error);
+  }
+}
+
+async function bmAction(act) {
+  const msg = document.getElementById('bmtg-msg');
+  msg.style.color = 'var(--muted)';
+  msg.textContent = '...';
+  const slot = window._bmDuplex ? parseInt(document.getElementById('bmtg-slot').value) : 0;
+  const r = await fetch('/api/bm/action/' + act, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({slot:slot})});
+  const d = await r.json();
+  if (d.ok) {
+    msg.style.color = 'var(--green)';
+    msg.textContent = act === 'dropCallRoute' ? 'QSO обірвано' : 'Динамічні групи скинуто';
+    await loadBmTg();
+  } else {
+    msg.style.color = 'var(--red)';
+    msg.textContent = JSON.stringify(d.result || d.error);
+  }
+}
+
+async function delBmTg(tg, slot) {
+  const msg = document.getElementById('bmtg-msg');
+  msg.style.color = 'var(--muted)';
+  msg.textContent = '...';
+  const r = await fetch('/api/bm/static/' + tg + (slot !== undefined ? '?slot=' + slot : ''), {method:'DELETE'});
+  const d = await r.json();
+  if (d.ok) {
+    msg.style.color = 'var(--green)';
+    msg.textContent = 'TG ' + tg + ' \u0432\u0438\u0434\u0430\u043b\u0435\u043d\u043e';
+    await loadBmTg();
+  } else {
+    msg.style.color = 'var(--red)';
+    msg.textContent = JSON.stringify(d.result || d.error);
+  }
+}
+
 function openAdmin() {
   if (isAdmin) return;
   document.getElementById('login-pw').value = '';
@@ -1603,6 +1752,7 @@ async function doLogin() {
     document.getElementById('mmdvm-btn').style.display = '';
     document.getElementById('configs-btn').style.display = '';
     document.getElementById('updates-btn').style.display = '';
+    document.getElementById('bmtg-btn').style.display = '';
     document.getElementById('logout-btn').style.display = '';
     document.getElementById('chpass-btn').style.display = '';
     showToast('✓ Авторизовано як адмін');
@@ -2430,6 +2580,134 @@ def api_network_status():
     result["dstar_linked"] = _network_status_cache.get("dstar_linked", "Не підключено")
 
     return jsonify(result)
+
+
+# ---------- BrandMeister API ----------
+BM_KEY_FILE = "/opt/dashboard/bm_apikey"
+BM_API = "https://api.brandmeister.network/v2/device"
+
+def _bm_key():
+    try:
+        with open(BM_KEY_FILE, encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        return ""
+
+def _bm_id():
+    try:
+        import configparser as _cpb
+        c = _cpb.RawConfigParser(strict=False)
+        c.read("/opt/DMRGateway/DMRGateway.ini")
+        for sec in c.sections():
+            if sec.startswith("DMR Network") and c.get(sec, "Enabled", fallback="0") == "1":
+                if "brandmeister" in c.get(sec, "Name", fallback="").lower():
+                    return c.get(sec, "Id", fallback="").strip()
+    except Exception:
+        pass
+    return ""
+
+def _bm_duplex():
+    """True, якщо хотспот дуплексний (BM тоді очікує слот 1 або 2)."""
+    try:
+        import configparser as _cpd
+        c = _cpd.RawConfigParser(strict=False)
+        c.read("/opt/DMRGateway/DMRGateway.ini")
+        return c.get("Info", "Duplex", fallback="1").strip() == "1"
+    except Exception:
+        return False
+
+def _bm_req(method, path, body=None):
+    import urllib.request, urllib.error
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(BM_API + path, data=data, method=method)
+    req.add_header("Content-Type", "application/json")
+    k = _bm_key()
+    if k:
+        req.add_header("Authorization", "Bearer " + k)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            txt = r.read().decode("utf-8", "ignore")
+            try:
+                return True, json.loads(txt)
+            except Exception:
+                return True, txt
+    except urllib.error.HTTPError as e:
+        return False, e.read().decode("utf-8", "ignore")[:200]
+    except Exception as e:
+        return False, str(e)
+
+@app.route("/api/bm/key")
+@login_required
+def api_bm_key_status():
+    return jsonify({"haskey": bool(_bm_key()), "id": _bm_id()})
+
+@app.route("/api/bm/key", methods=["POST"])
+@login_required
+def api_bm_key_save():
+    k = (request.json.get("key") or "").strip()
+    if len(k) < 20:
+        return jsonify({"ok": False, "error": "Ключ закороткий"})
+    try:
+        with open(BM_KEY_FILE, "w", encoding="utf-8") as f:
+            f.write(k)
+        os.chmod(BM_KEY_FILE, 0o600)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+@app.route("/api/bm/static")
+@login_required
+def api_bm_static():
+    bid = _bm_id()
+    if not bid:
+        return jsonify({"ok": False, "error": "Brandmeister не налаштований"})
+    ok, res = _bm_req("GET", "/%s/profile" % bid)
+    if not ok:
+        return jsonify({"ok": False, "error": res, "id": bid})
+    tgs = []
+    if isinstance(res, dict):
+        for x in res.get("staticSubscriptions", []):
+            tgs.append({"tg": x.get("talkgroup"), "slot": x.get("slot")})
+    return jsonify({"ok": True, "id": bid, "static": tgs, "haskey": bool(_bm_key()), "duplex": _bm_duplex()})
+
+@app.route("/api/bm/action/<act>", methods=["POST"])
+@login_required
+def api_bm_action(act):
+    if act not in ("dropCallRoute", "dropDynamicGroups"):
+        return jsonify({"ok": False, "error": "Невідома дія"})
+    bid = _bm_id()
+    if not bid:
+        return jsonify({"ok": False, "error": "Brandmeister не налаштований"})
+    slot = request.json.get("slot") if request.json else None
+    if slot is None:
+        slot = 2 if _bm_duplex() else 0
+    ok, res = _bm_req("GET", "/%s/action/%s/%s" % (bid, act, int(slot)))
+    return jsonify({"ok": ok, "result": res})
+
+@app.route("/api/bm/static", methods=["POST"])
+@login_required
+def api_bm_add():
+    bid = _bm_id()
+    tg = str(request.json.get("tg", "")).strip()
+    if not bid or not tg.isdigit():
+        return jsonify({"ok": False, "error": "Невірні дані"})
+    slot = request.json.get("slot")
+    if slot is None:
+        slot = 2 if _bm_duplex() else 0
+    ok, res = _bm_req("POST", "/%s/talkgroup" % bid, {"slot": int(slot), "group": int(tg)})
+    return jsonify({"ok": ok, "result": res})
+
+@app.route("/api/bm/static/<tg>", methods=["DELETE"])
+@login_required
+def api_bm_del(tg):
+    bid = _bm_id()
+    if not bid or not tg.isdigit():
+        return jsonify({"ok": False, "error": "Невірні дані"})
+    slot = request.args.get("slot")
+    if slot is None:
+        slot = 2 if _bm_duplex() else 0
+    ok, res = _bm_req("DELETE", "/%s/talkgroup/%s/%s" % (bid, int(slot), tg))
+    return jsonify({"ok": ok, "result": res})
 
 @app.route("/api/activity")
 def api_activity():
