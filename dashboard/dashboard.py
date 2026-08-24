@@ -7,7 +7,7 @@ import hashlib
 import secrets
 from flask import Flask, jsonify, render_template_string, request, session, redirect, url_for, Response
 import time
-from datetime import datetime
+from datetime import datetime, timedelta as _timedelta
 from functools import wraps
 
 # --- DMR ID -> callsign lookup ---
@@ -225,7 +225,7 @@ def _tail_activity():
                 return {"_update_dur": True, "mode": mode, "callsign": callsign, "dur": dur, "loss": loss, "ber": ber}
             elif any(x in line for x in ["received network","received RF","Begin TX","RF header from","received RF late entry","received RF header"]):
                 active_tx[key] = True
-                return {"time":ts,"epoch":ts_epoch,"mode":mode,"flag":flag,"callsign":callsign,"target":target,"src":src,"active":True,"dur":"---","loss":"---","ber":"---"}
+                return {"time":ts,"hour":dt_local.hour,"epoch":ts_epoch,"mode":mode,"flag":flag,"callsign":callsign,"target":target,"src":src,"active":True,"dur":"---","loss":"---","ber":"---"}
         except: pass
         return None
 
@@ -240,6 +240,8 @@ def _tail_activity():
             if log != current_log:
                 if file_obj: file_obj.close()
                 current_log = log
+                entries.clear()
+                active_tx.clear()
                 if log:
                     # Читаємо існуючі рядки для ініціалізації active_tx і entries
                     with open(log, encoding="utf-8", errors="ignore") as f:
@@ -254,11 +256,11 @@ def _tail_activity():
                                             break
                                 else:
                                     entries.insert(0, e)
-                                    if len(entries) > 1000: entries.pop()
+                                    if len(entries) > 10000: entries.pop()
                     # Оновлюємо active прапорці
                     for e in entries:
                         e['active'] = active_tx.get(e['mode']+e['callsign'], False)
-                    _activity_cache = list(entries[:1000])
+                    _activity_cache = list(entries)
                     # Відкриваємо для tail і читаємо до реального кінця
                     file_obj = open(log, encoding="utf-8", errors="ignore")
                     while file_obj.readline(): pass
@@ -277,7 +279,7 @@ def _tail_activity():
                                     break
                         else:
                             entries.insert(0, e)
-                            if len(entries) > 1000: entries.pop()
+                            if len(entries) > 10000: entries.pop()
                     # TX тільки для першого (найновішого) активного рядка
                     seen_active = set()
                     for entry in entries:
@@ -287,7 +289,7 @@ def _tail_activity():
                             seen_active.add(key)
                         else:
                             entry['active'] = False
-                    _activity_cache = list(entries[:1000])
+                    _activity_cache = list(entries)
                 else:
                     # Навіть без нових рядків — оновлюємо active стан
                     seen_active = set()
@@ -298,7 +300,7 @@ def _tail_activity():
                             seen_active.add(key)
                         else:
                             entry['active'] = False
-                    _activity_cache = list(entries[:1000])
+                    _activity_cache = list(entries)
                     _time.sleep(0.2)
             else:
                 _time.sleep(1)
@@ -476,104 +478,134 @@ def _tail_dstar_links():
 _threading.Thread(target=_tail_dstar_links, daemon=True).start()
 
 
-def _count_today_qso():
-    # Рахує завершені передачі (end of transmission) за поточний день (локальний EEST)
-    import glob
-    log_dir = "/var/log/mmdvm"
-    today = datetime.now().strftime("%Y-%m-%d")
-    log_file = f"{log_dir}/MMDVM-{today}.log"
-    if not os.path.exists(log_file):
-        return 0
-    try:
-        result = subprocess.run(
-            ["grep", "-cE", "end of (voice )?transmission", log_file],
-            capture_output=True, text=True, timeout=3
-        )
-        return int(result.stdout.strip() or 0)
-    except Exception:
-        return 0
+_scan_cache = []
+_scan_cache_ts = 0
+_SCAN_TTL = 5
 
-def _hourly_activity():
-    # Повертає словник {режим: [24 числа]} - передачі по годинах (EEST), з розбивкою за режимом
-    log_dir = "/var/log/mmdvm"
-    today = datetime.now().strftime("%Y-%m-%d")
-    log_file = f"{log_dir}/MMDVM-{today}.log"
-    modes = ["all", "YSF", "NXDN", "DMR", "D-Star"]
-    result = {m: [0] * 24 for m in modes}
-    if not os.path.exists(log_file):
-        return result
+def _scan_log_line(line):
+    """Розбирає один рядок логу MMDVM.
+    Повертає (тип, дані): 'head' - початок передачі, 'end' - її закінчення."""
     try:
-        with open(log_file, encoding="utf-8", errors="ignore") as f:
-            for line in f:
-                if "end of" not in line or "transmission" not in line:
-                    continue
-                parts = line.split(" ", 4)
-                if len(parts) < 4:
-                    continue
-                try:
-                    h_utc = int(parts[2][:2])
-                    h_local = (h_utc + 3) % 24  # UTC -> EEST
-                    mode_raw = parts[3].rstrip(",")
-                    if mode_raw.startswith("DMR"):
-                        mode = "DMR"
-                    elif mode_raw in ("YSF", "NXDN", "D-Star"):
-                        mode = mode_raw
-                    else:
-                        mode = None
-                    result["all"][h_local] += 1
-                    if mode:
-                        result[mode][h_local] += 1
-                except Exception:
-                    continue
+        if not line.strip():
+            return None, None
+        parts = line.split(" ", 4)
+        if len(parts) < 5:
+            return None, None
+        mode_raw = parts[3].rstrip(",")
+        if mode_raw == "DMR" and "Slot" in parts[4]:
+            slot = parts[4].split("Slot")[1].split(",")[0].strip()
+            mode = "DMR Slot " + slot
+        else:
+            mode = mode_raw
+        if mode not in ("DMR", "YSF", "D-Star", "NXDN", "P25") and not mode.startswith("DMR Slot"):
+            return None, None
+        if "from" not in line or " to " not in line:
+            return None, None
+        fi = line.index(" from ") + 6
+        ti = line.index(" to ", fi)
+        raw = line[fi:ti].strip()
+        callsign = dmr_id_to_callsign(raw)
+        if not callsign:
+            return None, None
+        flag = _dmr_flag(raw) or _call_flag(callsign)
+
+        if "end of transmission" in line or "end of voice transmission" in line:
+            dur = loss = ber = "---"
+            tail = line.split(", ", 2)[-1] if ", " in line else ""
+            for pt in [x.strip() for x in tail.split(",")]:
+                if "second" in pt:
+                    dur = pt.split()[0] + "s"
+                elif "packet loss" in pt:
+                    loss = pt.split()[0]
+                elif pt.startswith("BER:"):
+                    ber = pt.split()[-1]
+            return "end", {"mode": mode, "callsign": callsign,
+                           "dur": dur, "loss": loss, "ber": ber}
+
+        if not any(x in line for x in ["received network", "received RF", "Begin TX",
+                                       "RF header from", "received RF late entry",
+                                       "received RF header"]):
+            return None, None
+
+        dt_utc = datetime.strptime(parts[1] + " " + parts[2][:8], "%Y-%m-%d %H:%M:%S")
+        dt_local = dt_utc + _timedelta(hours=3)
+        target = line[ti + 4:].strip()
+        if "," in target:
+            target = target.split(",")[0].strip()
+        src = "RF" if ("received RF" in line or "RF header from" in line
+                       or "RF late entry" in line) else ("LNet" if "Begin TX" in line else "Net")
+        return "head", {"time": dt_local.strftime("%H:%M:%S"),
+                        "hour": dt_local.hour,
+                        "epoch": (dt_utc - datetime(1970, 1, 1)).total_seconds(),
+                        "mode": mode, "flag": flag, "callsign": callsign,
+                        "target": target, "src": src, "active": False,
+                        "dur": "---", "loss": "---", "ber": "---"}
     except Exception:
         pass
+    return None, None
+
+def _scan_today_log(force=False):
+    """Єдиний прохід по добовому логу. Повертає передачі, найновіші першими.
+    Джерело істини для лічильника, гістограми, топу і стрічки активності."""
+    global _scan_cache, _scan_cache_ts
+    if not force and _scan_cache_ts and (time.time() - _scan_cache_ts) < _SCAN_TTL:
+        return _scan_cache
+    log_file = "/var/log/mmdvm/MMDVM-%s.log" % datetime.now().strftime("%Y-%m-%d")
+    entries = []
+    if os.path.exists(log_file):
+        try:
+            with open(log_file, encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    kind, data = _scan_log_line(line)
+                    if kind == "head":
+                        entries.append(data)
+                    elif kind == "end":
+                        for en in reversed(entries):
+                            if en["mode"] == data["mode"] and en["callsign"] == data["callsign"]:
+                                en["dur"] = data["dur"]
+                                en["loss"] = data["loss"]
+                                en["ber"] = data["ber"]
+                                break
+        except Exception:
+            pass
+    entries.reverse()
+    _scan_cache = entries
+    _scan_cache_ts = time.time()
+    return entries
+
+def _count_today_qso():
+    """Кількість передач за добу (за заголовками, а не закінченнями)."""
+    return len(_activity_cache) or len(_scan_today_log())
+
+def _hourly_activity():
+    """{режим: [24 числа]} - передачі по годинах (місцевий час)."""
+    modes = ["all", "YSF", "NXDN", "DMR", "D-Star"]
+    result = {m: [0] * 24 for m in modes}
+    for e in (_activity_cache or _scan_today_log()):
+        h = e.get("hour")
+        if h is None or not (0 <= h < 24):
+            continue
+        m = e["mode"]
+        mode = "DMR" if m.startswith("DMR") else (m if m in modes else None)
+        result["all"][h] += 1
+        if mode:
+            result[mode][h] += 1
     return result
 
 def _top_callsigns():
-    # Топ-10 позивних за сьогодні з розбивкою за режимом {режим: [{callsign,count}]}
-    log_dir = "/var/log/mmdvm"
-    today = datetime.now().strftime("%Y-%m-%d")
-    log_file = f"{log_dir}/MMDVM-{today}.log"
+    """Топ-10 позивних за сьогодні з розбивкою за режимом."""
     modes = ["all", "YSF", "NXDN", "DMR", "D-Star"]
     counts = {m: {} for m in modes}
-    if not os.path.exists(log_file):
-        return {m: [] for m in modes}
-    try:
-        with open(log_file, encoding="utf-8", errors="ignore") as f:
-            for line in f:
-                if "from" not in line or " to " not in line:
-                    continue
-                if "end of" in line or "RF header from" in line or "late entry" in line:
-                    continue
-                if not any(x in line for x in ["received network", "received RF", "Begin TX"]):
-                    continue
-                try:
-                    parts = line.split(" ", 4)
-                    if len(parts) < 4:
-                        continue
-                    mode_raw = parts[3].rstrip(",")
-                    if mode_raw.startswith("DMR"):
-                        mode = "DMR"
-                    elif mode_raw in ("YSF", "NXDN", "D-Star"):
-                        mode = mode_raw
-                    else:
-                        mode = None
-                    from_idx = line.index(" from ") + 6
-                    to_idx = line.index(" to ", from_idx)
-                    raw = line[from_idx:to_idx].strip()
-                    cs = dmr_id_to_callsign(raw)
-                    if not cs:
-                        continue
-                    cs_pure = cs.split("/")[0].split(" ")[0].strip()
-                    if not cs_pure:
-                        cs_pure = cs
-                    counts["all"][cs_pure] = counts["all"].get(cs_pure, 0) + 1
-                    if mode:
-                        counts[mode][cs_pure] = counts[mode].get(cs_pure, 0) + 1
-                except Exception:
-                    continue
-    except Exception:
-        pass
+    for e in (_activity_cache or _scan_today_log()):
+        cs = e.get("callsign") or ""
+        cs_pure = cs.split("/")[0].split(" ")[0].strip() or cs
+        if not cs_pure:
+            continue
+        m = e["mode"]
+        mode = "DMR" if m.startswith("DMR") else (m if m in modes else None)
+        counts["all"][cs_pure] = counts["all"].get(cs_pure, 0) + 1
+        if mode:
+            counts[mode][cs_pure] = counts[mode].get(cs_pure, 0) + 1
     result = {}
     for m in modes:
         top = sorted(counts[m].items(), key=lambda kv: kv[1], reverse=True)[:10]
@@ -2765,6 +2797,8 @@ def api_activity():
         limit = 20
     limit = max(1, min(limit, 1000))
     rows = _activity_cache
+    if not rows:
+        rows = _scan_today_log()
     if mode and mode.lower() != "all":
         if mode.upper() == "DMR":
             rows = [e for e in rows if e.get("mode", "").startswith("DMR")]
