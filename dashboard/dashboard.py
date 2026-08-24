@@ -438,17 +438,28 @@ def _tail_dstar_links():
             return "Не підключено"
         return None
 
-    log = get_log()
-    if log:
-        try:
-            with open(log, encoding="utf-8", errors="ignore") as f:
+    # Стан лінка шукаємо по файлах від найновішого до старіших:
+    # подія лінкування могла статись у попередні доби і в сьогоднішній
+    # лог не потрапити (лінк тримається тижнями без переліну).
+    try:
+        _d = "/var/log/ircddbgateway/"
+        _files = sorted([f for f in _os2.listdir(_d)
+                         if f.startswith("ircDDBGateway-") and f.endswith(".log")
+                         and _os2.path.getsize(_d + f) > 0], reverse=True)
+        for _fn in _files[:7]:
+            with open(_d + _fn, encoding="utf-8", errors="ignore") as f:
                 lines = f.readlines()
+            _found = None
             for line in reversed(lines):
                 val = parse_line(line.strip())
                 if val:
-                    _network_status_cache["dstar_linked"] = val
+                    _found = val
                     break
-        except: pass
+            if _found:
+                _network_status_cache["dstar_linked"] = _found
+                break
+    except Exception:
+        pass
 
     current_log = log
     last_pos = _os2.path.getsize(log) if log else 0
