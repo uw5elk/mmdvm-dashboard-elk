@@ -3,9 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MYCALL Live — MMDVM</title>
+<title>N0CALL Live — MMDVM</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.3.5/mqtt.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jsvectormap@1.6.0/dist/jsvectormap.min.css">
+<script src="https://cdn.jsdelivr.net/npm/jsvectormap@1.6.0/dist/jsvectormap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsvectormap@1.6.0/dist/maps/world.js"></script>
+
 <style>
 :root{
   --bg:#0a0e14; --surface:#121821; --surface2:#1a2230; --border:#243040;
@@ -60,13 +64,33 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);min-hei
   .now-tx .who{font-size:28px}
   .event{font-size:13px;gap:8px;padding:10px 12px}
 }
+
+/* --- карта активності --- */
+.map-wrap{background:rgba(13,20,38,.72);border:1px solid rgba(80,120,190,.28);
+  border-radius:14px;padding:14px 16px 10px;margin:14px 0}
+.map-head{display:flex;align-items:baseline;justify-content:space-between;
+  gap:12px;margin-bottom:10px;flex-wrap:wrap}
+.map-title{color:#ffd75e;font-size:13px;letter-spacing:.16em;font-weight:600}
+.map-stat{color:#5fd3ff;font-size:12px;
+  font-family:ui-monospace,Menlo,Consolas,monospace}
+#actmap{width:100%;height:300px}
+#actmap .jvm-zoom-btn{background:rgba(30,45,75,.9);
+  border:1px solid rgba(90,130,200,.35);color:#cfe3ff;border-radius:6px}
+.jvm-tooltip{background:#101a30 !important;color:#e8f2ff !important;
+  border:1px solid rgba(95,211,255,.45) !important;border-radius:8px !important;
+  font-size:12px !important;padding:5px 9px !important}
+.map-legend{display:flex;align-items:center;gap:7px;justify-content:flex-end;
+  margin-top:6px;color:#7f96bb;font-size:11px}
+.map-legend i{width:20px;height:9px;border-radius:2px;display:inline-block}
+@media (max-width:600px){#actmap{height:210px}
+  .map-title{font-size:11px;letter-spacing:.1em}}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="header">
     <div>
-      <div class="title">MYCALL <span>LIVE</span></div>
+      <div class="title">N0CALL <span>LIVE</span></div>
       <div class="subtitle">MMDVM Hotspot · Real-time MQTT</div>
     </div>
     <div class="conn"><div class="dot" id="dot"></div><span id="connstat">З'єднання…</span></div>
@@ -102,6 +126,15 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);min-hei
   </div>
 
   <div class="section-title">Останні події</div>
+  <div class="map-wrap">
+    <div class="map-head">
+      <span class="map-title">ГЕОГРАФІЯ АКТИВНОСТІ (СЬОГОДНІ)</span>
+      <span class="map-stat" id="map-stat">&#8212;</span>
+    </div>
+    <div id="actmap"></div>
+    <div class="map-legend" id="map-legend"></div>
+  </div>
+
   <div class="feed" id="feed">
     <div class="empty" id="empty">Очікування подій… Передайте з радіо або дочекайтесь активності мережі.</div>
   </div>
@@ -154,8 +187,8 @@ function handleMmdvm(o){
     if(o[mode]){
       const d = o[mode];
       const isDstar = (mode==='D-Star' || mode==='DStar');
-      const nxdnIds = {}; // напр. {'1234':'MYCALL'} - NXDN ID -> позивний
-      const dmrIds = {}; // напр. {'1234567':'MYCALL'} - DMR ID -> позивний
+      const nxdnIds = {};  // {'NXDN ID':'ПОЗИВНИЙ'}
+      const dmrIds = {};   // {'DMR ID':'ПОЗИВНИЙ'}
       const who = d.src_callsign || (mode==='NXDN' ? (nxdnIds[String(d.src_id)] || d.src_info || d.src_id) : (mode==='DMR' ? (dmrIds[String(d.src_id)] || d.src_info || d.src_id) : (d.src_info || d.src_id))) || '?';
       // Фільтруємо службові TG
       if((mode==='NXDN' && String(d.dst_id)==='9999') || (mode==='NXDN' && String(d.src_id)==='9999')) return;
@@ -287,6 +320,121 @@ client.on('message', (topic, payload)=>{
   else if(topic==='ysf-gateway/json') handleLink('ysf', o);
   else if(topic==='nxdn-gateway/json') handleLink('nxdn', o);
 });
+</script>
+<script>
+(function(){
+  var mapObj=null, mapReady=false;
+
+  // Карта тягне добу окремо: SSE віддає лише зріз останніх подій
+  function loadMapData(){
+    fetch('http://'+location.hostname+':85/api/activity?limit=5000')
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(d && d.activity && window.updateActivityMap)
+          updateActivityMap(d.activity);
+      })
+      .catch(function(){});
+  }
+  setTimeout(loadMapData, 800);
+  setInterval(loadMapData, 120000);
+
+  // Емодзі-прапорець -> ISO-2 (регіональні індикатори: U+1F1E6 = "A")
+  function flagToIso(flag){
+    if(!flag) return null;
+    var cp=Array.from(flag).map(function(c){return c.codePointAt(0);});
+    if(cp.length<2) return null;
+    var a=cp[0]-0x1F1E6, b=cp[1]-0x1F1E6;
+    if(a<0||a>25||b<0||b>25) return null;
+    return String.fromCharCode(65+a)+String.fromCharCode(65+b);
+  }
+
+  function initMap(){
+    if(mapReady) return true;
+    if(typeof jsVectorMap==='undefined') return false;
+    try{
+      mapObj=new jsVectorMap({
+        selector:'#actmap', map:'world',
+        backgroundColor:'transparent', zoomButtons:true,
+        regionStyle:{
+          initial:{fill:'#1b2740', stroke:'#0c1428', strokeWidth:0.4},
+          hover:{fill:'#ff3860'}
+        },
+        series:{regions:[{attribute:'fill',
+          scale:['#14532d','#1e6f4c','#25c07a','#4ade80','#7dffc4'],
+          normalizeFunction:'linear', values:{}}]},
+        onRegionTooltipShow:function(ev,tooltip,code){
+          var n=(window.__mapCounts&&window.__mapCounts[code])||0;
+          if(!n) return;
+          var n10=n%10, n100=n%100, w;
+          if(n10===1 && n100!==11) w='\u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430';
+          else if(n10>=2 && n10<=4 && (n100<12||n100>14)) w='\u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0456';
+          else w='\u043f\u0435\u0440\u0435\u0434\u0430\u0447';
+          tooltip.text(tooltip.text()+' \u2014 '+n+' '+w);
+        }
+      });
+      mapReady=true; return true;
+    }catch(e){ console.error('map init:',e); return false; }
+  }
+
+  window.updateActivityMap=function(activity){
+    if(!activity||!activity.length) return;
+    if(!initMap()) return;
+    var counts={}, total=0, calls={};
+    for(var i=0;i<activity.length;i++){
+      var e=activity[i], iso=flagToIso(e.flag);
+      if(!iso) continue;
+      counts[iso]=(counts[iso]||0)+1; total++;
+      var cs=(e.callsign||'').split('/')[0].split(' ')[0].trim();
+      if(cs){ calls[iso]=calls[iso]||{}; calls[iso][cs]=1; }
+    }
+    window.__mapCounts=counts;
+    // Лог-шкала: розкид 1..1000+ інакше робить усе темним, крім лідера
+    // Кольори рахуємо самі: логарифмічна шкала -> fill напряму.
+    // Механіка scale в бібліотеці залежить від версії, setAttributes - ні.
+    var mx=0;
+    for(var c in counts){ if(counts[c]>mx) mx=counts[c]; }
+    var lmax=Math.log(mx+1)||1;
+    var stops=[[20,83,45],[34,197,94],[134,239,172],[217,255,240]];
+    function pick(t){
+      if(t<0) t=0; if(t>1) t=1;
+      var x=t*(stops.length-1), i=Math.floor(x), f=x-i;
+      if(i>=stops.length-1) return stops[stops.length-1];
+      var a=stops[i], b=stops[i+1];
+      return [Math.round(a[0]+(b[0]-a[0])*f),
+              Math.round(a[1]+(b[1]-a[1])*f),
+              Math.round(a[2]+(b[2]-a[2])*f)];
+    }
+    var fills={};
+    for(var c2 in counts){
+      var rgb=pick(Math.log(counts[c2]+1)/lmax);
+      fills[c2]='rgb('+rgb[0]+','+rgb[1]+','+rgb[2]+')';
+    }
+    try{
+      mapObj.series.regions[0].setAttributes(fills);
+    }catch(err){ console.error('setAttributes:', err); }
+    var nc=Object.keys(counts).length, ops=0;
+    for(var k in calls){ ops+=Object.keys(calls[k]).length; }
+    function plural(n, one, few, many){
+      var a=n%10, b=n%100;
+      if(a===1 && b!==11) return one;
+      if(a>=2 && a<=4 && (b<12||b>14)) return few;
+      return many;
+    }
+    var st=document.getElementById('map-stat');
+    if(st) st.textContent =
+      nc+' '+plural(nc,'\u043a\u0440\u0430\u0457\u043d\u0430','\u043a\u0440\u0430\u0457\u043d\u0438','\u043a\u0440\u0430\u0457\u043d')+' \u00b7 '
+      +ops+' '+plural(ops,'\u043f\u043e\u0437\u0438\u0432\u043d\u0438\u0439','\u043f\u043e\u0437\u0438\u0432\u043d\u0456','\u043f\u043e\u0437\u0438\u0432\u043d\u0438\u0445')+' \u00b7 '
+      +total+' '+plural(total,'\u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430','\u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0456','\u043f\u0435\u0440\u0435\u0434\u0430\u0447');
+    var lg=document.getElementById('map-legend');
+    if(lg&&!lg.dataset.done){
+      lg.innerHTML='<span>\u043c\u0435\u043d\u0448\u0435</span>'
+        +'<i style="background:#1e6f4c"></i><i style="background:#25c07a"></i>'
+        +'<i style="background:#7dffc4"></i>'
+        +'<span>\u0431\u0456\u043b\u044c\u0448\u0435</span>';
+      lg.dataset.done='1';
+    }
+  };
+})();
 </script>
 </body>
 </html>

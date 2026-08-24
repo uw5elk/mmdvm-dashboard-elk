@@ -2806,7 +2806,7 @@ def api_activity():
         limit = int(request.args.get("limit", 20))
     except ValueError:
         limit = 20
-    limit = max(1, min(limit, 1000))
+    limit = max(1, min(limit, 10000))
     rows = _activity_cache
     if not rows:
         rows = _scan_today_log()
