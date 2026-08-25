@@ -1188,13 +1188,13 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{_CALLSIGN} MMDVM Dashboard</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&family=Noto+Color+Emoji&display=swap" rel="stylesheet">
 <style>
 :root {
   --bg: #0a0e1a; --surface: #0f1629; --surface2: #151c35; --border: #1e2d50;
   --accent: #00d4ff; --accent2: #7c3aed; --green: #00ff88; --red: #ff3860;
   --yellow: #ffdd57; --text: #e2e8f0; --muted: #ffdd57;
-  --font-mono: 'JetBrains Mono', monospace; --font-main: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Noto Color Emoji', monospace; --font-main: 'Inter', -apple-system, 'Segoe UI', 'Noto Color Emoji', sans-serif;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
 body { background:var(--bg); color:var(--text); font-family:var(--font-main); min-height:100vh; overflow-x:hidden; }
@@ -2896,6 +2896,26 @@ def api_bm_del(tg):
         slot = 2 if _bm_duplex() else 0
     ok, res = _bm_req("DELETE", "/%s/talkgroup/%s/%s" % (bid, int(slot), tg))
     return jsonify({"ok": ok, "result": res})
+
+@app.route("/api/callsign/<ids>")
+def api_callsign(ids):
+    """DMR ID -> позивний. Кілька ID через кому: /api/callsign/1234567,7654321
+    Потрібен Live-сторінці: вона отримує дані з MQTT напряму,
+    минаючи Flask, тому доступу до бази позивних не має."""
+    out = {}
+    for raw in ids.split(",")[:50]:
+        raw = raw.strip()
+        if not raw:
+            continue
+        if raw.isdigit():
+            cs = dmr_id_to_callsign(raw)
+            out[raw] = {"callsign": cs if cs != raw else "",
+                        "flag": _dmr_flag(raw) or (_call_flag(cs) if cs != raw else "")}
+        else:
+            # Позивний напряму (YSF/NXDN/D-Star) - потрібен лише прапорець
+            out[raw] = {"callsign": raw, "flag": _call_flag(raw)}
+    return jsonify(out)
+
 
 @app.route("/api/activity")
 def api_activity():

@@ -6,6 +6,7 @@
 <title>N0CALL Live — MMDVM</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.3.5/mqtt.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jsvectormap@1.6.0/dist/jsvectormap.min.css">
 <script src="https://cdn.jsdelivr.net/npm/jsvectormap@1.6.0/dist/jsvectormap.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsvectormap@1.6.0/dist/maps/world.js"></script>
@@ -27,12 +28,12 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);min-hei
 .conn{display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:13px}
 .dot{width:10px;height:10px;border-radius:50%;background:var(--red);transition:all .3s}
 .dot.on{background:var(--green);box-shadow:0 0 12px var(--green)}
-.now{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:24px;text-align:center;transition:all .3s}
+.now{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:24px;text-align:center;transition:border-color .3s,box-shadow .3s;height:190px;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0}
 .now.active{border-color:var(--green);box-shadow:0 0 30px rgba(0,255,136,.15)}
-.now-label{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:2px;font-family:var(--font-mono);margin-bottom:12px}
+.now-label{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:2px;font-family:var(--font-mono);margin-bottom:12px;flex:0 0 auto}
 .now-idle{font-size:28px;font-weight:700;color:var(--muted)}
 .now-tx{display:none}
-.now-tx .who{font-size:36px;font-weight:800;color:var(--green)}
+.now-tx .who{font-size:36px;font-weight:800;color:var(--green);line-height:1.2;height:44px;display:flex;align-items:center;justify-content:center;gap:10px}
 .now-tx .what{font-size:16px;color:var(--text);margin-top:8px;font-family:var(--font-mono)}
 .now-tx .mode-badge{display:inline-block;margin-top:12px;padding:4px 14px;border-radius:20px;font-family:var(--font-mono);font-size:14px;font-weight:700;background:rgba(0,212,255,.12);color:var(--accent);border:1px solid var(--accent)}
 .links{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
@@ -42,7 +43,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);min-hei
 .link-card .val.linked{color:var(--green)}
 .link-card .val.unlinked{color:var(--muted)}
 .section-title{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:2px;font-family:var(--font-mono);margin-bottom:14px}
-.feed{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.feed{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow-y:auto;height:420px;box-sizing:border-box}
 .event{display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:14px;animation:slidein .3s ease}
 .event:last-child{border-bottom:none}
 @keyframes slidein{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:none}}
@@ -61,7 +62,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);min-hei
 @media(max-width:600px){
   .links{grid-template-columns:repeat(2,1fr)}
   .title{font-size:20px}
-  .now-tx .who{font-size:28px}
+  .now-tx .who{font-size:28px;height:36px}
+  .feed{height:320px}
   .event{font-size:13px;gap:8px;padding:10px 12px}
 }
 
@@ -74,8 +76,15 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);min-hei
 .map-stat{color:#5fd3ff;font-size:12px;
   font-family:ui-monospace,Menlo,Consolas,monospace}
 #actmap{width:100%;height:300px}
-#actmap .jvm-zoom-btn{background:rgba(30,45,75,.9);
-  border:1px solid rgba(90,130,200,.35);color:#cfe3ff;border-radius:6px}
+#actmap{position:relative}
+#actmap .jvm-zoom-btn{
+  display:flex;align-items:center;justify-content:center;
+  line-height:1 !important;font-size:13px;font-weight:700;
+  background:rgba(30,45,75,.9);border:1px solid rgba(90,130,200,.35);
+  color:#cfe3ff;border-radius:6px;
+}
+#actmap .jvm-zoom-btn.jvm-zoomin{top:auto !important;bottom:34px !important}
+#actmap .jvm-zoom-btn.jvm-zoomout{top:auto !important;bottom:10px !important}
 .jvm-tooltip{background:#101a30 !important;color:#e8f2ff !important;
   border:1px solid rgba(95,211,255,.45) !important;border-radius:8px !important;
   font-size:12px !important;padding:5px 9px !important}
@@ -100,6 +109,12 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);min-hei
 @media (max-width:600px){
   .map-mode{padding:3px 10px;font-size:11px}
 }
+
+body, .who, .what { font-family: inherit, 'Noto Color Emoji'; }
+.who { font-family: 'JetBrains Mono', 'Noto Color Emoji', monospace !important; }
+.tg-now{height:18px;line-height:18px;margin-top:4px;font-family:var(--font-mono);
+  font-size:13px;color:var(--accent);opacity:0;transition:opacity .2s}
+.tg-now.on{opacity:1}
 </style>
 </head>
 <body>
@@ -126,6 +141,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);min-hei
     <div class="link-card">
       <div class="lbl">DMR</div>
       <div class="val unlinked" id="dmr-link">—</div>
+      <div class="tg-now" id="dmr-tg"></div>
     </div>
     <div class="link-card">
       <div class="lbl">D-Star</div>
@@ -188,17 +204,72 @@ function pushEvent(mode, html, cls=''){
   while(feed.children.length > 30) feed.removeChild(feed.lastChild);
 }
 
+// Кеш DMR ID -> позивний. Live отримує дані з MQTT напряму, минаючи Flask,
+// тому базу позивних доводиться питати окремим запитом.
+// Оголошення має бути ДО першого використання (dmrIds у showTx).
+window.__csCache = {};
+
+// Підсвітка країни, з якої йде передача: червона під час TX,
+// гасне одразу після її завершення.
+window.__txIso = null;
+var _txFadeTimer = null;
+
+function mapHighlight(iso) {
+  if (!iso) return;
+  if (!window.__mapObj) {
+    // Карта ще не готова (retained-стан приходить раніше) - запам'ятовуємо
+    window.__pendingIso = iso;
+    return;
+  }
+  clearTimeout(_txFadeTimer);
+  if (window.__txIso && window.__txIso !== iso) mapRestore(window.__txIso);
+  window.__txIso = iso;
+  clearTimeout(_txFadeTimer);   // скидаємо таймер від попередньої передачі
+  try {
+    var a = {}; a[iso] = '#ff3860';
+    window.__mapObj.series.regions[0].setAttributes(a);
+  } catch(e) {}
+}
+
+function mapRestore(iso) {
+  if (!iso || !window.__mapObj) return;
+  try {
+    var own = (window.__mapFills && window.__mapFills[iso]) || '#1b2740';
+    var a = {}; a[iso] = own;
+    window.__mapObj.series.regions[0].setAttributes(a);
+  } catch(e) {}
+}
+
+function mapFadeOut() {
+  // Гасимо одразу: підсвітка живе рівно стільки, скільки триває передача
+  var iso = window.__txIso;
+  if (!iso) return;
+  clearTimeout(_txFadeTimer);
+  mapRestore(iso);
+  window.__txIso = null;
+}
+
 function showTx(mode, who, what){
   $('idle').style.display='none';
   $('tx').style.display='block';
   $('now').classList.add('active');
   $('tx-who').textContent = who;
+  // Якщо в ефірі числовий DMR ID - підтягуємо позивний і замінюємо на льоту
+  var _w = String(who || '').trim();
+  if (/^\d+$/.test(_w)) {
+    resolveCallsign(_w, $('tx-who'));   // підсвітку поставить сам resolve
+  } else {
+    var _iso = callsignToIso(_w);
+    if (_iso) mapHighlight(_iso);
+  }
   $('tx-what').textContent = what;
   $('tx-mode').textContent = mode;
   clearTimeout(txTimer);
   txTimer = setTimeout(clearTx, 300000);
 }
 function clearTx(){
+  mapFadeOut();   // країна гасне через 5 с ПІСЛЯ завершення передачі
+  var _tg=$('dmr-tg'); if(_tg) _tg.classList.remove('on');
   $('tx').style.display='none';
   $('idle').style.display='block';
   $('now').classList.remove('active');
@@ -211,7 +282,7 @@ function handleMmdvm(o){
       const d = o[mode];
       const isDstar = (mode==='D-Star' || mode==='DStar');
       const nxdnIds = {};  // {'NXDN ID':'ПОЗИВНИЙ'}
-      const dmrIds = {};   // {'DMR ID':'ПОЗИВНИЙ'}
+      const dmrIds = window.__csCache;
       const who = d.src_callsign || (mode==='NXDN' ? (nxdnIds[String(d.src_id)] || d.src_info || d.src_id) : (mode==='DMR' ? (dmrIds[String(d.src_id)] || d.src_info || d.src_id) : (d.src_info || d.src_id))) || '?';
       // Фільтруємо службові TG
       if((mode==='NXDN' && String(d.dst_id)==='9999') || (mode==='NXDN' && String(d.src_id)==='9999')) return;
@@ -228,7 +299,10 @@ function handleMmdvm(o){
       const src = d.source==='rf' ? 'з радіо' : 'з мережі';
       if(d.action==='start' || d.action==='late_entry'){
         let cardId = null, cardVal = null;
-        if(mode==='DMR' && d.dst_id!==undefined){ cardId='dmr-link'; cardVal='TG '+d.dst_id; }
+        if(mode==='DMR' && d.dst_id!==undefined){
+          var tgEl=$('dmr-tg');
+          if(tgEl){ tgEl.textContent='TG '+d.dst_id; tgEl.classList.add('on'); }
+        }
         else if(isDstar){ const r = d.reflector || d.dst_callsign || ''; if(r && r!=='CQCQCQ'){ cardId='dstar-link'; cardVal=r.trim(); } }
         if(cardId && cardVal){ const c=$(cardId); if(c){ c.textContent=cardVal; c.className='val linked'; } }
       }
@@ -307,6 +381,61 @@ const client = mqtt.connect(url, {reconnectPeriod:3000});
 client.on('connect', ()=>{ setConn(true); client.subscribe('#'); });
 
 // SSE для оновлення network статусу в реальному часі
+// Позивний -> ISO країни через бекенд (YSF/NXDN/D-Star приходять без прапорця).
+// Викликає mapHighlight асинхронно, коли відповідь надійде.
+window.__isoCache = {};
+function callsignToIso(cs) {
+  cs = String(cs || '').split('/')[0].split(' ')[0].trim().toUpperCase();
+  if (!cs || cs.length < 2) return null;
+  var hit = window.__isoCache[cs];
+  if (hit !== undefined) return hit || null;
+  window.__isoCache[cs] = null;
+  fetch('http://' + location.hostname + ':85/api/callsign/' + encodeURIComponent(cs))
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var rec = d && d[cs];
+      var iso = (rec && rec.flag && window.flagToIso) ? window.flagToIso(rec.flag) : null;
+      window.__isoCache[cs] = iso || '';
+      if (iso) mapHighlight(iso);
+    })
+    .catch(function(){ delete window.__isoCache[cs]; });
+  return null;
+}
+
+function resolveCallsign(id, el) {
+  id = String(id || '').trim();
+  if (!id || !/^\d+$/.test(id)) return;
+  var hit = window.__csCache[id];
+  if (hit) {                       // вже знаємо - підставляємо негайно
+    if (el && el.textContent.trim() === id) {
+      var f = (window.__flagCache && window.__flagCache[id]) || '';
+      el.textContent = (f ? f + ' ' : '') + hit;
+    }
+    return;
+  }
+  if (hit !== undefined) return;   // null = запит уже в дорозі
+  window.__csCache[id] = null;  // мітка "вже запитано"
+  fetch('http://' + location.hostname + ':85/api/callsign/' + id)
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var rec = d && d[id];
+      var cs = rec && rec.callsign;
+      window.__csCache[id] = cs || '';
+      window.__flagCache = window.__flagCache || {};
+      if (rec && rec.flag) window.__flagCache[id] = rec.flag;
+      // Якщо цей ID досі в ефірі - оновлюємо напис на льоту
+      if (cs && el && el.textContent.trim() === id) {
+        var fl = (rec && rec.flag) ? rec.flag + ' ' : '';
+        el.textContent = fl + cs;
+      }
+      if (rec && rec.flag) {
+        var iso2 = window.flagToIso ? window.flagToIso(rec.flag) : null;
+        if (iso2) mapHighlight(iso2);
+      }
+    })
+    .catch(function(){ delete window.__csCache[id]; });
+}
+
 const sse = new EventSource('http://'+location.hostname+':85/api/stream');
 sse.onmessage = function(e){
   try{
@@ -359,14 +488,19 @@ client.on('message', (topic, payload)=>{
     loadMapData();
   };
 
+  var _mapReq=0;
   function loadMapData(){
     var q='http://'+location.hostname+':85/api/activity?limit=10000';
-    if(mapMode!=='all') q+='&mode='+encodeURIComponent(mapMode);
+    var mode=mapMode;
+    if(mode!=='all') q+='&mode='+encodeURIComponent(mode);
+    var myReq=++_mapReq;
     fetch(q)
       .then(function(r){ return r.json(); })
       .then(function(d){
-        if(d && d.activity && window.updateActivityMap)
-          updateActivityMap(d.activity);
+        // Відповідь застаріла (режим уже змінили) - ігноруємо
+        if(myReq!==_mapReq || mode!==mapMode) return;
+        if(d && window.updateActivityMap)
+          updateActivityMap(d.activity||[]);
       })
       .catch(function(){});
   }
@@ -374,6 +508,7 @@ client.on('message', (topic, payload)=>{
   setInterval(loadMapData, 120000);
 
   // Емодзі-прапорець -> ISO-2 (регіональні індикатори: U+1F1E6 = "A")
+  window.flagToIso = flagToIso;   // потрібна поза замиканням карти
   function flagToIso(flag){
     if(!flag) return null;
     var cp=Array.from(flag).map(function(c){return c.codePointAt(0);});
@@ -392,7 +527,7 @@ client.on('message', (topic, payload)=>{
         backgroundColor:'transparent', zoomButtons:true,
         regionStyle:{
           initial:{fill:'#1b2740', stroke:'#0c1428', strokeWidth:0.4},
-          hover:{fill:'#ff3860'}
+          hover:{fill:'#ffd75e'}
         },
         series:{regions:[{attribute:'fill',
           scale:['#14532d','#1e6f4c','#25c07a','#4ade80','#7dffc4'],
@@ -407,7 +542,13 @@ client.on('message', (topic, payload)=>{
           tooltip.text(tooltip.text()+' \u2014 '+n+' '+w);
         }
       });
-      mapReady=true; return true;
+      mapReady=true;
+      window.__mapObj = mapObj;   // потрібен для підсвітки країни в ефірі
+      if (window.__pendingIso) {   // передача вже йшла, коли сторінку відкрили
+        var pi = window.__pendingIso; window.__pendingIso = null;
+        setTimeout(function(){ mapHighlight(pi); }, 100);
+      }
+      return true;
     }catch(e){ console.error('map init:',e); return false; }
   }
 
@@ -457,7 +598,18 @@ client.on('message', (topic, payload)=>{
       fills[c2]='rgb('+rgb[0]+','+rgb[1]+','+rgb[2]+')';
     }
     try{
+      // Спершу гасимо ВСІ країни: setAttributes не чіпає ті, яких немає
+      // у fills, тому без цього кольори попереднього режиму лишаються
+      var reset={};
+      for(var rc in mapObj.regions){ reset[rc]='#1b2740'; }
+      mapObj.series.regions[0].setAttributes(reset);
       mapObj.series.regions[0].setAttributes(fills);
+      window.__mapFills = fills;  // власні кольори країн для відновлення
+      // Якщо країна зараз в ефірі - повертаємо їй червоний після перемальовки
+      if (window.__txIso) {
+        var keep={}; keep[window.__txIso]='#ff3860';
+        mapObj.series.regions[0].setAttributes(keep);
+      }
     }catch(err){ console.error('setAttributes:', err); }
     var nc=Object.keys(counts).length, ops=0;
     for(var k in calls){ ops+=Object.keys(calls[k]).length; }
