@@ -965,14 +965,73 @@ def api_logs(service):
         return jsonify({"error": "unknown service"}), 400
     return jsonify({"lines": get_log_lines(service, 30)})
 
+# Захист від перебору пароля: {IP: [кількість невдач, час останньої]}
+_login_fails = {}
+_login_attempts = []   # [{ip, time}] - невдалі спроби від останнього входу
+_LOGIN_ATTEMPTS_MAX = 50
+_login_lock = threading.Lock()
+_MAX_FAILS = 5
+_BLOCK_SEC = 3600  # 1 година
+
+def _client_ip():
+    fwd = request.headers.get("X-Forwarded-For", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.remote_addr or "?"
+
 @app.route("/api/login", methods=["POST"])
 def api_login():
-    data = request.get_json()
+    ip = _client_ip()
+    now = time.time()
+
+    with _login_lock:
+        # Прибираємо застарілі записи, щоб словник не ріс безмежно
+        for k in [k for k, v in _login_fails.items() if now - v[1] > _BLOCK_SEC]:
+            _login_fails.pop(k, None)
+        fails, last = _login_fails.get(ip, (0, 0))
+        if fails >= _MAX_FAILS and now - last < _BLOCK_SEC:
+            left = int((_BLOCK_SEC - (now - last)) / 60) + 1
+            return jsonify({"ok": False,
+                            "error": "Забагато спроб. Спробуйте через %d хв." % left}), 429
+
+    data = request.get_json(silent=True) or {}
     pw = data.get("password", "")
+
     if hashlib.sha256(pw.encode()).hexdigest() == get_admin_hash():
+        with _login_lock:
+            _login_fails.pop(ip, None)
+            attempts = list(_login_attempts)
         session['admin'] = True
-        return jsonify({"ok": True})
+        return jsonify({"ok": True, "failed_attempts": attempts})
+
+    # Прогресивна затримка за номером спроби: 5, 10, 20, 30, 60 секунд
+    with _login_lock:
+        _prev, _ = _login_fails.get(ip, (0, 0))
+    _delays = [5, 10, 20, 30, 60]
+    time.sleep(_delays[min(_prev, len(_delays) - 1)])
+
+    with _login_lock:
+        f, _ = _login_fails.get(ip, (0, 0))
+        _login_fails[ip] = (f + 1, now)
+        left = _MAX_FAILS - (f + 1)
+        _login_attempts.append({
+            "ip": ip,
+            "time": datetime.now().strftime("%d.%m %H:%M:%S")
+        })
+        if len(_login_attempts) > _LOGIN_ATTEMPTS_MAX:
+            del _login_attempts[0]
+    try:
+        print("[auth] невдалий вхід з %s (лишилось спроб: %d)" % (ip, max(left, 0)), flush=True)
+    except Exception:
+        pass
     return jsonify({"ok": False, "error": "Невірний пароль"}), 401
+
+@app.route("/api/login_attempts/clear", methods=["POST"])
+@login_required
+def api_login_attempts_clear():
+    with _login_lock:
+        _login_attempts.clear()
+    return jsonify({"ok": True})
 
 @app.route("/api/logout", methods=["POST"])
 def api_logout():
@@ -1832,9 +1891,48 @@ async function doLogin() {
     document.getElementById('logout-btn').style.display = '';
     document.getElementById('chpass-btn').style.display = '';
     showToast('✓ Авторизовано як адмін');
+    showFailedAttempts(data.failed_attempts);
   } else {
     document.getElementById('login-error').style.display = 'block';
   }
+}
+
+function ackFailedAttempts() {
+  var box = document.getElementById('auth-warn');
+  if (box) box.remove();
+  fetch('/api/login_attempts/clear', {method:'POST'}).catch(function(){});
+}
+
+function showFailedAttempts(list) {
+  if (!list || !list.length) return;
+  var old = document.getElementById('auth-warn');
+  if (old) old.remove();
+
+  var rows = list.slice(-15).reverse().map(function(a) {
+    return '<div style="display:flex;justify-content:space-between;gap:14px;' +
+           'padding:5px 0;border-bottom:1px solid rgba(255,255,255,.06)">' +
+           '<span style="color:var(--text);font-family:ui-monospace,monospace">' + a.ip + '</span>' +
+           '<span style="color:var(--muted);white-space:nowrap">' + a.time + '</span></div>';
+  }).join('');
+
+  var box = document.createElement('div');
+  box.id = 'auth-warn';
+  box.style.cssText = 'background:rgba(255,56,96,.08);border:1px solid rgba(255,56,96,.45);' +
+    'border-radius:12px;padding:14px 16px;margin:0 0 16px';
+  box.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px">' +
+      '<span style="color:#ff3860;font-weight:700;font-size:14px">' +
+        '&#9888; Невдалі спроби входу: ' + list.length + '</span>' +
+      '<span onclick="ackFailedAttempts()" ' +
+        'style="cursor:pointer;color:var(--muted);font-size:20px;line-height:1">&times;</span>' +
+    '</div>' +
+    '<div style="font-size:13px">' + rows + '</div>' +
+    (list.length > 15 ? '<div style="color:var(--muted);font-size:12px;margin-top:6px">' +
+      'показано останні 15</div>' : '');
+
+  var host = document.querySelector('.main') || document.body;
+  host.insertBefore(box, host.firstChild);
+  window.scrollTo(0, 0);
 }
 
 async function doLogout() {
