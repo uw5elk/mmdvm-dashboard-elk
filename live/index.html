@@ -84,6 +84,22 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);min-hei
 .map-legend i{width:20px;height:9px;border-radius:2px;display:inline-block}
 @media (max-width:600px){#actmap{height:210px}
   .map-title{font-size:11px;letter-spacing:.1em}}
+
+/* --- перемикачі режимів над картою --- */
+.map-modes{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.map-mode{
+  background:rgba(24,36,60,.85);border:1px solid rgba(90,130,200,.3);
+  color:#8fa8cc;border-radius:999px;padding:4px 13px;font-size:12px;
+  font-family:inherit;cursor:pointer;transition:all .15s;
+  -webkit-tap-highlight-color:transparent;
+}
+.map-mode:hover{border-color:rgba(95,211,255,.5);color:#cfe3ff}
+.map-mode.on{
+  background:#22c55e;border-color:#22c55e;color:#05140b;font-weight:600;
+}
+@media (max-width:600px){
+  .map-mode{padding:3px 10px;font-size:11px}
+}
 </style>
 </head>
 <body>
@@ -130,6 +146,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);min-hei
     <div class="map-head">
       <span class="map-title">ГЕОГРАФІЯ АКТИВНОСТІ (СЬОГОДНІ)</span>
       <span class="map-stat" id="map-stat">&#8212;</span>
+    </div>
+    <div class="map-modes" id="map-modes">
+      <button class="map-mode on" data-mode="all">Всі</button>
+      <button class="map-mode" data-mode="DMR">DMR</button>
+      <button class="map-mode" data-mode="YSF">YSF</button>
+      <button class="map-mode" data-mode="NXDN">NXDN</button>
+      <button class="map-mode" data-mode="D-Star">D-Star</button>
     </div>
     <div id="actmap"></div>
     <div class="map-legend" id="map-legend"></div>
@@ -326,8 +349,20 @@ client.on('message', (topic, payload)=>{
   var mapObj=null, mapReady=false;
 
   // Карта тягне добу окремо: SSE віддає лише зріз останніх подій
+  var mapMode='all';
+
+  window.setMapMode=function(m, btn){
+    mapMode=m;
+    var bs=document.querySelectorAll('#map-modes .map-mode');
+    for(var i=0;i<bs.length;i++) bs[i].classList.remove('on');
+    if(btn) btn.classList.add('on');
+    loadMapData();
+  };
+
   function loadMapData(){
-    fetch('http://'+location.hostname+':85/api/activity?limit=5000')
+    var q='http://'+location.hostname+':85/api/activity?limit=10000';
+    if(mapMode!=='all') q+='&mode='+encodeURIComponent(mapMode);
+    fetch(q)
       .then(function(r){ return r.json(); })
       .then(function(d){
         if(d && d.activity && window.updateActivityMap)
@@ -377,8 +412,20 @@ client.on('message', (topic, payload)=>{
   }
 
   window.updateActivityMap=function(activity){
-    if(!activity||!activity.length) return;
     if(!initMap()) return;
+    activity = activity || [];
+    if(!activity.length){
+      // Порожня вибірка: гасимо карту, інакше лишиться попередній режим
+      window.__mapCounts={};
+      try{
+        var clr={};
+        for(var rc in mapObj.regions){ clr[rc]='#1b2740'; }
+        mapObj.series.regions[0].setAttributes(clr);
+      }catch(e){}
+      var st0=document.getElementById('map-stat');
+      if(st0) st0.textContent='\u043d\u0435\u043c\u0430\u0454 \u0434\u0430\u043d\u0438\u0445';
+      return;
+    }
     var counts={}, total=0, calls={};
     for(var i=0;i<activity.length;i++){
       var e=activity[i], iso=flagToIso(e.flag);
@@ -434,6 +481,17 @@ client.on('message', (topic, payload)=>{
       lg.dataset.done='1';
     }
   };
+})();
+</script>
+
+<script>
+(function(){
+  var box=document.getElementById('map-modes');
+  if(!box) return;
+  box.addEventListener('click', function(ev){
+    var b=ev.target.closest('.map-mode');
+    if(b && window.setMapMode) setMapMode(b.dataset.mode, b);
+  });
 })();
 </script>
 </body>
