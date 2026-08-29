@@ -44,7 +44,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-main);min-hei
 .link-card .val.unlinked{color:var(--muted)}
 .section-title{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:2px;font-family:var(--font-mono);margin-bottom:14px}
 .feed{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow-y:auto;height:420px;box-sizing:border-box}
-.event{display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:14px;animation:slidein .3s ease}
+.event{display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--border);font-family:'JetBrains Mono','Noto Color Emoji',monospace;font-size:14px;animation:slidein .3s ease}
 .event:last-child{border-bottom:none}
 @keyframes slidein{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:none}}
 .event .time{color:var(--muted);font-size:13px;min-width:70px}
@@ -309,14 +309,19 @@ function handleMmdvm(o){
       if(d.action==='start' || d.action==='late_entry'){
         lastWho[mode] = {who, dst};
         showTx(mode, who, dst.replace(' → ','') + ' · ' + src);
-        pushEvent(mode, '<b>'+who+'</b>'+dst+' <span class="src">('+src+')</span>', 'start');
+        var _tag = ' data-id="'+String(who).replace(/"/g,'')+'"';
+        pushEvent(mode, '<b'+_tag+'>'+who+'</b>'+dst+' <span class="src">('+src+')</span>', 'start');
+        resolveAny(who);
       } else if(d.action==='end'){
         clearTx();
         const dur = d.duration ? d.duration.toFixed(1)+'с' : '';
-        const ber = d.ber !== undefined ? ' BER:'+(d.ber*100).toFixed(1)+'%' : '';
-        const loss = d.loss !== undefined && d.loss!==0 ? ' Loss:'+d.loss+'%' : '';
+        // MQTT віддає BER уже у відсотках (звірено з логом MMDVMHost), множити не треба
+        const ber = d.ber !== undefined ? ' BER:'+Number(d.ber).toFixed(1)+'%' : '';
+        const loss = d.loss !== undefined && d.loss!==0 ? ' Loss:'+Number(d.loss).toFixed(1)+'%' : '';
         const prev = lastWho[mode] || {who:'?', dst:''};
-        if(dur) pushEvent(mode, '<b>'+prev.who+'</b>'+prev.dst+' <span class="src">'+dur+ber+loss+'</span>', 'end');
+        var _tag2 = ' data-id="'+String(prev.who).replace(/"/g,'')+'"';
+        if(dur) pushEvent(mode, '<b'+_tag2+'>'+prev.who+'</b>'+prev.dst+' <span class="src">'+dur+ber+loss+'</span>', 'end');
+        resolveAny(prev.who);
       }
       return;
     }
@@ -402,11 +407,49 @@ function callsignToIso(cs) {
   return null;
 }
 
+// Прапорець для будь-якого джерела: числовий DMR ID або готовий позивний
+function resolveAny(v) {
+  v = String(v || '').trim();
+  if (!v || v === '?') return;
+  if (/^\d+$/.test(v)) { resolveCallsign(v, null); return; }
+  if (window.__flagCache && window.__flagCache[v] !== undefined) {
+    updateFeedRows(v);
+    return;
+  }
+  window.__flagCache = window.__flagCache || {};
+  window.__flagCache[v] = '';
+  var key = v.split('/')[0].split(' ')[0].trim();
+  fetch('http://' + location.hostname + ':85/api/callsign/' + encodeURIComponent(key))
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var rec = d && d[key];
+      window.__flagCache[v] = (rec && rec.flag) ? rec.flag : '';
+      window.__csCache[v] = v;
+      updateFeedRows(v);
+    })
+    .catch(function(){ delete window.__flagCache[v]; });
+}
+
+function updateFeedRows(id) {
+  var cs = window.__csCache[id];
+  var fl = (window.__flagCache && window.__flagCache[id]) ? window.__flagCache[id] + ' ' : '';
+  // ID може бути не зареєстрований на radioid.net - тоді позивного немає,
+  // але країна відома з MCC-префікса, тож показуємо хоча б прапорець
+  if (!cs && !fl) return;
+  var nodes = document.querySelectorAll('#feed b[data-id="' + String(id).replace(/"/g,'') + '"]');
+  for (var k = 0; k < nodes.length; k++) {
+    nodes[k].textContent = fl + (cs || id);
+    nodes[k].removeAttribute('data-id');
+  }
+}
+
 function resolveCallsign(id, el) {
   id = String(id || '').trim();
   if (!id || !/^\d+$/.test(id)) return;
   var hit = window.__csCache[id];
-  if (hit) {                       // вже знаємо - підставляємо негайно
+  if (hit || (window.__flagCache && window.__flagCache[id])) {
+    updateFeedRows(id);
+    if (!hit) return;
     if (el && el.textContent.trim() === id) {
       var f = (window.__flagCache && window.__flagCache[id]) || '';
       el.textContent = (f ? f + ' ' : '') + hit;
@@ -423,10 +466,11 @@ function resolveCallsign(id, el) {
       window.__csCache[id] = cs || '';
       window.__flagCache = window.__flagCache || {};
       if (rec && rec.flag) window.__flagCache[id] = rec.flag;
+      updateFeedRows(id);
       // Якщо цей ID досі в ефірі - оновлюємо напис на льоту
-      if (cs && el && el.textContent.trim() === id) {
+      if (el && el.textContent.trim() === id) {
         var fl = (rec && rec.flag) ? rec.flag + ' ' : '';
-        el.textContent = fl + cs;
+        if (cs || fl) el.textContent = fl + (cs || id);
       }
       if (rec && rec.flag) {
         var iso2 = window.flagToIso ? window.flagToIso(rec.flag) : null;
