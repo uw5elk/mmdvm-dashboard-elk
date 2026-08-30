@@ -204,6 +204,10 @@ def _tail_activity():
                 _raw = line[fi:ti].strip()
                 flag = _dmr_flag(_raw)
                 callsign = dmr_id_to_callsign(_raw)
+                if callsign == _raw and _raw.isdigit():
+                    # Немає в локальній базі - пробуємо кеш radioid.net.
+                    # Запит іде у фоні: блокувати тред читання логу не можна.
+                    callsign = _radioid_async(_raw) or _raw
                 if not flag:
                     flag = _call_flag(callsign)
                 target = line[ti+4:].strip()
@@ -461,6 +465,9 @@ def _tail_dstar_links():
     except Exception:
         pass
 
+    # Для стеження за новими подіями беремо поточний файл:
+    # початковий пошук вище міг знайти статус у старішому лозі
+    log = get_log()
     current_log = log
     last_pos = _os2.path.getsize(log) if log else 0
 
@@ -2897,6 +2904,59 @@ def api_bm_del(tg):
     ok, res = _bm_req("DELETE", "/%s/talkgroup/%s/%s" % (bid, int(slot), tg))
     return jsonify({"ok": ok, "result": res})
 
+_radioid_cache = {}
+_radioid_lock = threading.Lock()
+
+def _radioid_async(dmr_id):
+    """Неблокуючий варіант: віддає з кешу або запускає запит у фоні."""
+    with _radioid_lock:
+        if dmr_id in _radioid_cache:
+            return _radioid_cache[dmr_id]
+        _radioid_cache[dmr_id] = ""   # мітка "запит у дорозі"
+    threading.Thread(target=_radioid_lookup_bg, args=(dmr_id,), daemon=True).start()
+    return ""
+
+
+def _radioid_lookup_bg(dmr_id):
+    cs = ""
+    try:
+        import urllib.request, json as _json
+        url = "https://radioid.net/api/dmr/user/?id=%s" % dmr_id
+        req = urllib.request.Request(url, headers={"User-Agent": "mmdvm-dashboard"})
+        with urllib.request.urlopen(req, timeout=6) as r:
+            data = _json.loads(r.read().decode("utf-8", "ignore"))
+        res = data.get("results") or []
+        if res:
+            cs = (res[0].get("callsign") or "").strip().upper()
+    except Exception:
+        cs = ""
+    with _radioid_lock:
+        _radioid_cache[dmr_id] = cs
+
+
+def _radioid_lookup(dmr_id):
+    """Позивний з radioid.net для ID, якого ще немає в локальній базі.
+    Результат кешується, зокрема й порожній, щоб не смикати API щоразу."""
+    with _radioid_lock:
+        if dmr_id in _radioid_cache:
+            return _radioid_cache[dmr_id]
+    cs = ""
+    try:
+        import urllib.request, json as _json
+        url = "https://radioid.net/api/dmr/user/?id=%s" % dmr_id
+        req = urllib.request.Request(url, headers={"User-Agent": "mmdvm-dashboard"})
+        with urllib.request.urlopen(req, timeout=4) as r:
+            data = _json.loads(r.read().decode("utf-8", "ignore"))
+        res = data.get("results") or []
+        if res:
+            cs = (res[0].get("callsign") or "").strip().upper()
+    except Exception:
+        cs = ""
+    with _radioid_lock:
+        _radioid_cache[dmr_id] = cs
+    return cs
+
+
 @app.route("/api/callsign/<ids>")
 def api_callsign(ids):
     """DMR ID -> позивний. Кілька ID через кому: /api/callsign/1234567,7654321
@@ -2909,6 +2969,10 @@ def api_callsign(ids):
             continue
         if raw.isdigit():
             cs = dmr_id_to_callsign(raw)
+            if cs == raw:
+                # Немає в локальній базі: свіжі реєстрації потрапляють
+                # у щодобовий дамп із затримкою - питаємо radioid.net
+                cs = _radioid_lookup(raw) or raw
             out[raw] = {"callsign": cs if cs != raw else "",
                         "flag": _dmr_flag(raw) or (_call_flag(cs) if cs != raw else "")}
         else:
