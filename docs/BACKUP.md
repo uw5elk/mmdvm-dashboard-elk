@@ -74,8 +74,14 @@ sudo systemctl restart mmdvmhost dmrgateway dashboard
 проміжного файлу на самій картці (місця на неї не потрібно).
 
 ```bash
-screen -dmS imgbackup bash -c 'sudo dd if=/dev/mmcblk0 bs=4M | gzip | rclone rcat gdrive:Backup/PiBackup/pi-backup-$(date +%Y%m%d).img.gz; touch /home/pi/BACKUP_DONE'
+sudo -v && screen -dmS imgbackup bash -c 'sudo dd if=/dev/mmcblk0 bs=4M | gzip | rclone rcat gdrive:Backup/PiBackup/pi-backup-$(date +%Y%m%d).img.gz; touch /home/pi/BACKUP_DONE'
 ```
+
+> **`sudo -v` на початку обов'язковий.** Всередині `screen -dm` сесія не має
+> терміналу, тому якщо `sudo` вирішить запитати пароль, він зависне мовчки:
+> процеси будуть у списку, але `dd` не запуститься і запис не почнеться.
+> `sudo -v` оновлює дозвіл заздалегідь, і всередині сесії пароль уже не
+> питається.
 
 Розбір ланцюга:
 - `dd` читає **весь диск** — обидва розділи, таблицю розділів, завантажувач
@@ -83,17 +89,25 @@ screen -dmS imgbackup bash -c 'sudo dd if=/dev/mmcblk0 bs=4M | gzip | rclone rca
 - `rclone rcat` пише потік одразу в хмару
 - `screen -dmS` тримає процес, навіть якщо SSH-сесія обірветься
 
-Перевірка, що пішло:
+Перевірка, що запис реально йде (а не завис на `sudo`):
 
 ```bash
-ps aux | grep -E "dd if=/dev/mmcblk0|rclone rcat" | grep -v grep
+ps aux | grep -E "[d]d if=/dev/mmcblk0 bs=4M|[r]clone rcat" | awk '{print $3"%CPU", $11, $12}'
 ```
+
+У робочому стані `dd` показує кілька відсотків CPU, `rclone` — 20–35%.
+Якщо всі процеси на `0.0%` і самого `dd` немає (лише `sudo dd`) — запис
+завис, сесію треба прибити й запустити наново з `sudo -v`.
 
 Перевірка завершення:
 
 ```bash
-ls -la /home/pi/BACKUP_DONE 2>/dev/null && echo "ГОТОВО" || echo "ще йде"
+ls -la /home/pi/BACKUP_DONE 2>/dev/null && echo "ГОТОВО" || echo "ще пишеться"
 ```
+
+> **Не прибивайте сесію до появи позначки.** `rclone rcat` завантажує файл
+> одним потоком і створює його на диску лише після успішного завершення —
+> обірваний запис не залишить нічого, і бекапу просто не буде.
 
 Після завершення прибрати сесію:
 
